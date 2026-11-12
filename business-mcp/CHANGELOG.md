@@ -1,12 +1,21 @@
 # ประวัติ Business MCP Gateway
 
+## 12 พฤศจิกายน 2026 — Production รองรับ Claude custom connector
+
+- ผู้ใช้อนุมัติ "deploy ได้เลย"; ปล่อย source `004f2f37624d02910163d808fdf0f791f422fb59` จาก worktree สะอาด `business/claude-connector-20261112` ด้วย Railway CLI 5.71.0 (`railway up` จาก repo root, rootDirectory `business-mcp`) message `Claude custom connector OAuth callbacks and bare-URL MCP 004f2f3`; deployment `a782dfb9-5589-4ee3-a38e-20d0549a3414` SUCCESS ไม่ใช้ SSD simulation copy ไม่เปลี่ยน env/service/volume
+- Runtime manifest จาก deployment logs ตรง commit 15/15 ไฟล์; ไม่มี error ใน deploy log; `/health` ok
+- ตรวจ Production แบบไม่ใช้รหัสผ่านเจ้าของ 17/17 ผ่าน: PRM `resource` = URL เปล่าและ authorization server เดียว, AS metadata/S256, `POST /` และ `POST /mcp` ไม่มี token ได้ 401 + challenge เดิม, GET ได้ 405, DCR claude.ai/claude.com/chatgpt.com ได้ 201 และ lookalike/trailing slash/loopback ได้ 400, หน้าอนุญาตของ Claude และ ChatGPT แสดงชื่อ+โดเมน CSP มี callback ของ Claude และไม่มีข้อความ template ค้าง, resource อื่นได้ 400; ไม่กดอนุญาตเพราะต้องใช้รหัสผ่านเจ้าของ
+- `verify-live` รันใน container ที่ deploy แล้วผ่าน `railway ssh` (ไม่ดึง credential ออกนอก Railway, พิมพ์แค่สถานะ) วันที่ขาย 11 พ.ย.: Market Order/ClickHouse, HRMS, LINE Bill OK ทั้ง KK/SK; Cash Flow PARTIAL เพราะมีหน้าเพิ่มเติมตามข้อจำกัดเดิม `connected_all_sources=true`; หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-claude-connector-production-live-20261112.json`
+- Staged patch `030a6027-1e77-46c1-b272-393faacc0b86` ยัง STAGED, updatedAt `2026-11-09T11:05:44.570Z` และ patch SHA-256 `1451927e…d258` ตรงก่อน/หลังปล่อย (12 รายการ: POS metadata เดิมของ business-mcp และ `ANTHROPIC_API_KEY` ของ line-bill-capture); service source ยังเป็น CLI upload ไม่ได้สลับไป GitHub branch
+- ยังไม่ได้ทดสอบ: การเชื่อมจริงในแอป Claude ต้องให้เจ้าของกรอกรหัสผ่านเองที่หน้าอนุญาต; ChatGPT ไม่ได้ reconnect (token เดิมใช้ signing key เดิม)
+
 ## 12 พฤศจิกายน 2026 — Local candidate เชื่อม Claude เป็น custom connector
 
 - ผู้ใช้สั่ง "แก้ให้ต่อ Claude ได้" เพื่อใช้ Gateway เป็นแกนผู้ช่วยแบบ Jarvis; branch `business/claude-connector-20261112` จาก `business/integration-20261009-sales-items` d0bcb2dc (source = Production `4ed496dd`; runtime manifest ของ deployment `2b401288-e248-4c67-8c57-ab3f836e8247` ตรง commit 15/15 ไฟล์ ตรวจ 12 พ.ย.)
 - OAuth รับ callback ตรงตัวของ Claude hosted apps `https://claude.ai/api/mcp/auth_callback` และ `https://claude.com/api/mcp/auth_callback`; CSP form-action เพิ่มสองค่านี้; หน้าอนุญาตแสดงชื่อแอปและ hostname ปลายทาง (ChatGPT/Claude) ตามข้อกำหนด MCP ไม่เปลี่ยนรหัสผ่านเจ้าของ signing key token อายุ หรือ policy สาขา
 - Claude ต้องให้ URL ที่กรอกเท่ากับ `resource` ของ metadata จึงเปิด `POST /` เป็น MCP เดียวกับ `/mcp`; authorize/token รับ resource publicUrl, `/` ท้าย, `/mcp` หรือไม่ส่ง และ scope ไม่ส่งได้ (ค่าเดียวคือ business.read) แต่ยังปฏิเสธ resource อื่น scope ที่ไม่มี business.read redirect ไม่ตรง และ PKCE ที่ไม่ใช่ S256; GET/DELETE บน MCP path ตอบ 405 `Allow: POST` แทน 404
 - เส้นทาง ChatGPT เดิม (URL `/mcp`, challenge, metadata, token format) ไม่เปลี่ยน เทสต์ ChatGPT เดิมผ่านโดยไม่แก้; เทสต์ใหม่ 4 ชุดครอบคลุม DCR allowlist/lookalike, flow ของ Claude ครบ discovery→PKCE→token→MCP ทั้ง `/` และ `/mcp`→refresh และการปฏิเสธ; SSD 31/31 ผ่าน
-- สถานะ Local เท่านั้น: ยังไม่ deploy ไม่ได้เชื่อม Claude จริง ต้องขออนุมัติผู้ใช้ก่อนปล่อย หลังปล่อยตรวจ runtime hash, DCR/authorize ของ Claude บน Production และให้เจ้าของกรอกรหัสผ่านเองในหน้าอนุญาต
+- สถานะตอน candidate: Local เท่านั้น ปล่อยแล้วตามหัวข้อ Production ด้านบน
 
 ## 9 ตุลาคม 2026 — Production 17 tools พร้อมอ่านสินค้า/เมนูรายตัว
 
