@@ -76,7 +76,7 @@ await fs.writeFile(codexBin, fakeCodex, { mode: 0o755 });
 
 // ---------- รูปทดสอบ ----------
 const png = (shade) => sharp({ create: { width: 4, height: 4, channels: 3, background: { r: shade, g: 255, b: 255 } } }).png().toBuffer();
-const imageIds = ['ext-claude-bill', 'ext-claude-slip', 'ext-codex-bill', 'ext-codex-slip', 'ext-limit-bill', 'ext-garbage-bill'];
+const imageIds = ['ext-claude-bill', 'ext-claude-slip', 'ext-codex-bill', 'ext-codex-slip', 'ext-limit-bill', 'ext-garbage-bill', 'ext-pick-codex-bill'];
 for (const [index, id] of imageIds.entries()) await fs.writeFile(path.join(contentDir, `${id}.png`), await png(index * 20));
 
 const server = spawn(process.env.NODE_BINARY || 'node', ['src/server.js'], {
@@ -253,6 +253,27 @@ try {
   assert(garbageItem.ai_status === 'failed' && garbageItem.ai_error_kind === 'transient' && garbageItem.ai_next_retry_at, 'bad answer scheduled for retry');
   assert(/External runner: claude/.test(garbageItem.ai_error || ''), 'error message names the runner');
 
+  // 7b) แอดมินเลือก AI ที่ใช้อ่านบิลจากหน้า admin → ตัวอ่านที่ตั้ง --agent claude ต้องสลับไปใช้ Codex
+  const beforePick = await http('GET', '/api/admin/ai/status', { token: null });
+  assert(beforePick.json?.data?.reader?.external_mode === true && beforePick.json.data.reader.agent === null, 'no reader choice by default');
+  assert(beforePick.json.data.reader.options.map((option) => option.value).join(',') === 'claude,codex', 'reader options listed');
+  const badPick = await http('PUT', '/api/admin/ai/reader', { token: null, body: { agent: 'gpt' } });
+  assert(badPick.status === 400, `unknown reader rejected: ${badPick.text}`);
+  const pick = await http('PUT', '/api/admin/ai/reader', { token: null, body: { agent: 'codex' } });
+  assert(pick.status === 200 && pick.json.data.agent === 'codex' && pick.json.data.updated_at, `reader choice saved: ${pick.text}`);
+  assert((await http('GET', '/api/ai-runner/status')).json.data.preferred_agent === 'codex', 'runner status exposes the choice');
+  await sendWebhook([imageEvent('Gext5', 'ext-pick-codex-bill', t0 + 14_400_000)]);
+  await waitDownloaded(['ext-pick-codex-bill']);
+  const wrongAgentClaim = await http('POST', '/api/ai-runner/claim', { body: { agent: 'claude' } });
+  assert(wrongAgentClaim.json?.data?.task === null && wrongAgentClaim.json.data.preferred_agent === 'codex', 'a runner using another AI gets no image');
+  assert((await itemByMessage('ext-pick-codex-bill')).ai_status === 'pending', 'rejected claim leaves the image queued');
+  const pickRun = await runRunner('claude', { LBC_RUNNER_CODEX_MODEL: 'gpt-6.1-terra' });
+  assert(pickRun.code === 0 && /ตามที่เลือกในหน้า admin/.test(pickRun.output), `runner follows admin choice:\n${pickRun.output}`);
+  const pickedBill = await itemByMessage('ext-pick-codex-bill');
+  assert(pickedBill.ai_status === 'done' && pickedBill.ai_model === 'codex:gpt-6.1-terra' && Number(pickedBill.bill_total_value) === 2450, `read by chosen AI: ${pickedBill.ai_model}`);
+  const pickClaude = await http('PUT', '/api/admin/ai/reader', { token: null, body: { agent: 'claude' } });
+  assert(pickClaude.json?.data?.agent === 'claude', 'choice can be switched back');
+
   // 8) admin "รันคิว" ในโหมด external ทำแค่จับคู่ ไม่เรียก AI
   const adminRun = await http('POST', '/api/admin/ai/run', { token: null, body: {} });
   assert(adminRun.json?.data?.external_runner === true && adminRun.json.data.processed === 0, 'admin run does not analyze in external mode');
@@ -269,6 +290,11 @@ try {
 const runner = await import('./subscription-ai-runner.mjs');
 assert(runner.extractJsonObject('```json\n{"a":1}\n```').a === 1, 'extract fenced JSON');
 assert(runner.extractJsonObject('ok {"a":2} done').a === 2, 'extract embedded JSON');
+const machine = { agent: 'claude', model: 'sonnet', claudeModel: '', codexModel: 'gpt-6.1-terra' };
+assert(JSON.stringify(runner.resolveReader('codex', machine)) === JSON.stringify({ agent: 'codex', model: 'gpt-6.1-terra', fromServer: true }), 'admin choice overrides --agent with its own model');
+assert(JSON.stringify(runner.resolveReader(null, machine)) === JSON.stringify({ agent: 'claude', model: 'sonnet', fromServer: false }), 'no choice keeps --agent and --model');
+assert(runner.resolveReader('gpt', machine).agent === 'claude', 'unknown choice falls back to --agent');
+assert(runner.modelForAgent('codex', { ...machine, codexModel: '' }) === '', '--model is not reused for another AI');
 assert(JSON.stringify(runner.toAnyOfSchema({ type: ['string', 'null'] })) === JSON.stringify({ anyOf: [{ type: 'string' }, { type: 'null' }] }), 'type arrays -> anyOf');
 const configScratch = await fs.mkdtemp(path.join(os.tmpdir(), 'lbc-external-config-'));
 process.env.CAPTURE_DATA_DIR = configScratch;

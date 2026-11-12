@@ -434,6 +434,13 @@ const ensureSchema = () => {
       UNIQUE(business_date, source_id)
     );
 
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_by TEXT,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS decision_events (
       id TEXT PRIMARY KEY,
       action_key TEXT NOT NULL,
@@ -826,6 +833,27 @@ const runRead = async (operation) => {
   await initDatabase();
   return operation(db);
 };
+
+// ค่าตั้งระบบที่แอดมินเปลี่ยนได้จากหน้า admin โดยไม่ต้อง deploy (เช่น AI ที่ใช้อ่านบิล)
+export const getAppSetting = async (key) => runRead((database) => {
+  const statement = database.prepare('SELECT key, value, updated_by, updated_at FROM app_settings WHERE key = ?');
+  try {
+    statement.bind([String(key)]);
+    return statement.step() ? statement.getAsObject() : null;
+  } finally {
+    statement.free();
+  }
+});
+
+export const setAppSetting = async ({ key, value, updatedBy = null }) => runWrite((database) => {
+  const now = new Date().toISOString();
+  database.run(
+    `INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+    [String(key), String(value), updatedBy ? String(updatedBy).slice(0, 120) : null, now]
+  );
+  return { key: String(key), value: String(value), updated_by: updatedBy || null, updated_at: now };
+});
 
 export const getExpenseProfile = async (id, { pairMatchId = null } = {}) => runRead((database) => {
   const profile = readExpenseProfile(database, Number(id), { pairMatchId });

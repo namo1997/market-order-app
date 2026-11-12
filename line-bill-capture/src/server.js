@@ -100,12 +100,15 @@ import {
 import { getConfiguredGroupSettings, pushLineGroupMessage, runConfiguredGroupChecks } from './group-check.js';
 import {
   ExternalRunnerError,
+  READER_AGENTS,
   claimNextExternalTask,
   failExternalTask,
   finishExternalBatch,
   getExternalRunnerStatus,
+  getReaderAgentChoice,
   releaseExternalTask,
   requireActiveClaim,
+  setReaderAgentChoice,
   submitExternalResult,
   verifyRunnerToken
 } from './external-ai.js';
@@ -831,7 +834,8 @@ const runnerRoute = (handler) => async (req, res, next) => {
 app.use('/api/ai-runner', noStore, requireRunnerToken, express.json({ limit: '2mb' }));
 app.get('/api/ai-runner/status', runnerRoute(() => getExternalRunnerStatus()));
 app.post('/api/ai-runner/claim', runnerRoute(async (req) => ({
-  task: await claimNextExternalTask({ agent: req.body?.agent, model: req.body?.model })
+  task: await claimNextExternalTask({ agent: req.body?.agent, model: req.body?.model }),
+  preferred_agent: (await getReaderAgentChoice()).agent
 })));
 app.get('/api/ai-runner/items/:id/image', async (req, res, next) => {
   try {
@@ -932,6 +936,7 @@ const adminDecisionActionKey = (req) => {
     'post:/ai/requeue': 'ai.items.requeue',
     'post:/ai/reset-all': 'ai.analysis.reset',
     'post:/ai/pause': 'ai.queue.pause',
+    'put:/ai/reader': 'ai.reader.select',
     'post:/days/close': 'day.close',
     'post:/days/reopen': 'day.reopen',
     'post:/senders/refresh': 'senders.refresh',
@@ -995,11 +1000,23 @@ app.use('/api/admin', async (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
+const aiReaderState = async (status) => {
+  const choice = await getReaderAgentChoice();
+  return {
+    external_mode: status.provider === 'external',
+    agent: choice.agent,
+    updated_by: choice.updated_by,
+    updated_at: choice.updated_at,
+    options: READER_AGENTS
+  };
+};
+
 app.get('/api/admin/ai/status', async (req, res, next) => {
   try {
+    const status = await getAiWorkerStatus();
     res.json({
       success: true,
-      data: await getAiWorkerStatus()
+      data: { ...status, reader: await aiReaderState(status) }
     });
   } catch (error) {
     next(error);
@@ -1024,6 +1041,20 @@ app.post('/api/admin/ai/rematch', async (req, res, next) => {
       success: true,
       data: await rebuildAiMatches()
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// เลือก AI ที่ตัวอ่านบน iMac ใช้อ่านบิล (Claude Code / Codex) มีผลกับรูปที่จองหลังจากนี้
+app.put('/api/admin/ai/reader', async (req, res, next) => {
+  try {
+    const status = await getAiWorkerStatus();
+    if (status.provider !== 'external') {
+      return res.status(409).json({ success: false, message: 'ตอนนี้ระบบไม่ได้อ่านรูปผ่านตัวอ่านบน iMac จึงเลือก AI จากหน้านี้ไม่ได้' });
+    }
+    await setReaderAgentChoice({ agent: req.body?.agent, updatedBy: adminActor(req) });
+    res.json({ success: true, data: await aiReaderState(status) });
   } catch (error) {
     next(error);
   }

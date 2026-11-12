@@ -24,6 +24,7 @@ excluded.
 | `ai.items.requeue` | Retry failed/scoped items | assist | medium | IDs or explicit queue filter |
 | `ai.matches.rebuild` | Rebuild candidate pairs | deterministic | medium | current analyzed items |
 | `ai.queue.run/pause` | Worker control | assist | low | visible scope and queue status |
+| `ai.reader.select` | Choose the AI the iMac runner reads with (Claude Code / Codex) | human-only | low | external runner mode, chosen agent |
 | `documents.deduplicate` | Mark byte duplicates | deterministic + human | high | SHA-256 and same-group rule |
 
 ## Guardrails

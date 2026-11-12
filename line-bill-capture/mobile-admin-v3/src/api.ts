@@ -8,7 +8,7 @@ const actionKeyFor = (path: string, method: string) => {
   const known: Record<string, string> = {
     'post:/ai/run': 'ai.queue.run', 'post:/ai/rematch': 'ai.matches.rebuild',
     'post:/ai/requeue': 'ai.items.requeue', 'post:/ai/reset-all': 'ai.analysis.reset',
-    'post:/ai/pause': 'ai.queue.pause', 'post:/days/close': 'day.close',
+    'post:/ai/pause': 'ai.queue.pause', 'put:/ai/reader': 'ai.reader.select', 'post:/days/close': 'day.close',
     'post:/days/reopen': 'day.reopen', 'post:/senders/refresh': 'senders.refresh',
     'post:/items/deduplicate': 'documents.deduplicate',
     'post:/items/:id/request-transfer': 'line.transfer_request.send',

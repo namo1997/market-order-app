@@ -16,11 +16,13 @@ import {
   storeAnalysisResult
 } from './ai-worker.js';
 import {
+  getAppSetting,
   getItemById,
   listAiLearningExamples,
   listAiQueueItems,
   markAiProcessing,
-  releaseAiClaim
+  releaseAiClaim,
+  setAppSetting
 } from './db.js';
 
 export const EXTERNAL_PROVIDER = 'external';
@@ -34,6 +36,30 @@ export class ExternalRunnerError extends Error {
     this.code = code;
   }
 }
+
+// AI ที่แอดมินเลือกให้ตัวอ่านใช้อ่านบิล (ตั้งจากหน้า admin ไม่ต้อง deploy)
+// ยังไม่เคยเลือก = ตัวอ่านใช้ AI ตามที่ตั้งไว้ในเครื่อง (--agent)
+export const READER_AGENT_SETTING_KEY = 'ai_reader_agent';
+export const READER_AGENTS = [
+  { value: 'claude', label: 'Claude Code' },
+  { value: 'codex', label: 'Codex' }
+];
+const READER_AGENT_VALUES = new Set(READER_AGENTS.map((agent) => agent.value));
+
+export const getReaderAgentChoice = async () => {
+  const row = await getAppSetting(READER_AGENT_SETTING_KEY);
+  const agent = READER_AGENT_VALUES.has(String(row?.value || '')) ? String(row.value) : null;
+  return { agent, updated_by: agent ? row.updated_by || null : null, updated_at: agent ? row.updated_at || null : null };
+};
+
+export const setReaderAgentChoice = async ({ agent, updatedBy } = {}) => {
+  const value = String(agent || '').trim().toLowerCase();
+  if (!READER_AGENT_VALUES.has(value)) {
+    throw new ExternalRunnerError(400, 'INVALID_READER_AGENT', 'เลือกได้เฉพาะ Claude Code หรือ Codex');
+  }
+  await setAppSetting({ key: READER_AGENT_SETTING_KEY, value, updatedBy });
+  return getReaderAgentChoice();
+};
 
 const cleanLabel = (value, fallback) => String(value || '').replace(/[^\w.:@/+-]/g, '').slice(0, 60) || fallback;
 
@@ -85,6 +111,9 @@ const buildTask = async (claimed, config) => {
 export const claimNextExternalTask = async ({ agent, model } = {}) => {
   const config = getAiConfig();
   requireExternalMode(config);
+  // ถ้าแอดมินเลือก AI ไว้ ตัวอ่านที่ใช้ AI อื่นจะไม่ได้รูปไปอ่าน (กันตัวอ่านรุ่นเก่าที่ยังไม่รู้จักค่าที่เลือก)
+  const choice = await getReaderAgentChoice();
+  if (choice.agent && String(agent || '').toLowerCase() !== choice.agent) return null;
   const staleBeforeIso = staleCutoff(config);
   const candidates = await listAiQueueItems({ limit: 5, maxAttempts: config.maxAttempts, staleBeforeIso });
   for (const candidate of candidates) {
@@ -189,9 +218,11 @@ export const finishExternalBatch = async () => {
 
 export const getExternalRunnerStatus = async () => {
   const status = await getAiWorkerStatus();
+  const choice = await getReaderAgentChoice();
   return {
     provider: status.provider,
     external_mode: status.provider === EXTERNAL_PROVIDER,
+    preferred_agent: choice.agent,
     queue: status.queue
   };
 };

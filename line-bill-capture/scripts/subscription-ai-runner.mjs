@@ -10,6 +10,9 @@
 //   node subscription-ai-runner.mjs install-launchd --interval 600 --agent claude [--load]
 //   node subscription-ai-runner.mjs uninstall-launchd
 //
+// AI ที่ใช้อ่าน: ถ้าแอดมินเลือกไว้ในหน้า admin (เมนู AI ทั้งระบบ) ตัวอ่านจะใช้ตามนั้นทุกรอบ
+// ถ้ายังไม่เคยเลือกใช้ --agent; รุ่นต่อ AI ตั้งได้ด้วย --claude-model / --codex-model
+// (--model ใช้กับ AI ตัวเดียวกับ --agent เท่านั้น)
 // ค่าตั้ง: --server <url> หรือ LBC_RUNNER_URL, token จาก LBC_RUNNER_TOKEN หรือไฟล์ --token-file
 // (ค่าเริ่มต้น ~/.config/lbc-ai-runner/token สิทธิ์ 600), --work-dir สำหรับรูปชั่วคราว/บันทึก
 import { spawn } from 'child_process';
@@ -51,6 +54,8 @@ const settings = {
   server: String(option('server', 'LBC_RUNNER_URL', '')).replace(/\/+$/, ''),
   agent: String(option('agent', 'LBC_RUNNER_AGENT', 'claude')).toLowerCase(),
   model: option('model', 'LBC_RUNNER_MODEL', ''),
+  claudeModel: option('claude-model', 'LBC_RUNNER_CLAUDE_MODEL', ''),
+  codexModel: option('codex-model', 'LBC_RUNNER_CODEX_MODEL', ''),
   max: Math.max(1, Math.min(500, Number(option('max', 'LBC_RUNNER_MAX', 30)) || 30)),
   timeoutMs: Math.max(30, Number(option('timeout-sec', 'LBC_RUNNER_TIMEOUT_SEC', 300)) || 300) * 1000,
   workDir: path.resolve(String(option('work-dir', 'LBC_RUNNER_WORK_DIR', DEFAULT_WORK_DIR))),
@@ -201,7 +206,7 @@ const agentFailure = (agent, result) => {
   return new Error(`${agent} exit ${result.code}: ${detail || 'no output'}`);
 };
 
-const runClaude = async ({ task, dir, fileName }) => {
+const runClaude = async ({ task, dir, fileName, model }) => {
   const args = [
     '-p',
     '--output-format', 'json',
@@ -212,7 +217,7 @@ const runClaude = async ({ task, dir, fileName }) => {
     '--permission-mode', 'dontAsk',
     '--setting-sources', 'project',
     '--strict-mcp-config',
-    ...(settings.model ? ['--model', String(settings.model)] : [])
+    ...(model ? ['--model', String(model)] : [])
   ];
   const result = await runProcess(settings.claudeBin, args, { cwd: dir, input: task.prompt + imageInstruction(fileName) });
   const envelope = extractJsonObject(result.stdout);
@@ -226,7 +231,7 @@ const runClaude = async ({ task, dir, fileName }) => {
   return analysis;
 };
 
-const runCodex = async ({ task, dir, fileName }) => {
+const runCodex = async ({ task, dir, fileName, model }) => {
   const schemaPath = path.join(dir, 'schema.json');
   const outputPath = path.join(dir, 'answer.json');
   await fs.writeFile(schemaPath, JSON.stringify(task.schema));
@@ -240,7 +245,7 @@ const runCodex = async ({ task, dir, fileName }) => {
     '--image', path.join(dir, fileName),
     '--output-schema', schemaPath,
     '--output-last-message', outputPath,
-    ...(settings.model ? ['--model', String(settings.model)] : []),
+    ...(model ? ['--model', String(model)] : []),
     '-'
   ];
   const result = await runProcess(settings.codexBin, args, { cwd: dir, input: task.prompt + imageInstruction(fileName) });
@@ -253,7 +258,21 @@ const runCodex = async ({ task, dir, fileName }) => {
 
 const AGENTS = { claude: runClaude, codex: runCodex };
 
-const processTask = async (call, task) => {
+// รุ่นของ AI แต่ละตัว: --claude-model/--codex-model ก่อน แล้วจึง --model ถ้าเป็น AI ตัวเดียวกับ --agent
+export const modelForAgent = (agent, current = settings) => {
+  const specific = agent === 'claude' ? current.claudeModel : agent === 'codex' ? current.codexModel : '';
+  if (specific) return String(specific);
+  return agent === current.agent ? String(current.model || '') : '';
+};
+
+// เลือก AI ของรอบนี้: ใช้ค่าที่แอดมินเลือกในหน้า admin ถ้ามี ไม่งั้นใช้ --agent ของเครื่อง
+export const resolveReader = (preferredAgent, current = settings) => {
+  const preferred = String(preferredAgent || '').toLowerCase();
+  const agent = AGENTS[preferred] ? preferred : current.agent;
+  return { agent, model: modelForAgent(agent, current), fromServer: Boolean(AGENTS[preferred]) };
+};
+
+const processTask = async (call, task, reader) => {
   const dir = path.join(settings.workDir, 'items', `item-${task.item_id}-${task.claim}`);
   await fs.mkdir(dir, { recursive: true });
   const fileName = `image${task.file_extension || '.jpg'}`;
@@ -261,7 +280,7 @@ const processTask = async (call, task) => {
   try {
     const image = await call('GET', task.image_path, null, { raw: true });
     await fs.writeFile(path.join(dir, fileName), image);
-    const analysis = await AGENTS[settings.agent]({ task, dir, fileName });
+    const analysis = await AGENTS[reader.agent]({ task, dir, fileName, model: reader.model });
     const saved = await call('POST', `/api/ai-runner/items/${task.item_id}/result`, { claim: task.claim, analysis, started_at_ms: startedAt });
     const amount = saved.bill_total_value ?? saved.slip_amount_value;
     await log(`อ่านแล้ว #${task.item_id} → ${saved.category}${amount == null ? '' : ` ${amount}`} (${Math.round((Date.now() - startedAt) / 1000)} วิ)`);
@@ -296,11 +315,24 @@ const runOnce = async () => {
   const call = api(await readToken());
   const counts = { done: 0, failed: 0 };
   let stopped = false;
+  let reader = resolveReader(null);
   try {
+    const status = await call('GET', '/api/ai-runner/status');
+    reader = resolveReader(status?.preferred_agent);
+    if (reader.fromServer && reader.agent !== settings.agent) {
+      await log(`ใช้ ${reader.agent} ตามที่เลือกในหน้า admin (เครื่องตั้งไว้ ${settings.agent})`);
+    }
     for (let index = 0; index < settings.max; index += 1) {
-      const { task } = await call('POST', '/api/ai-runner/claim', { agent: settings.agent, model: settings.model || 'default' });
+      const claimed = await call('POST', '/api/ai-runner/claim', { agent: reader.agent, model: reader.model || 'default' });
+      let task = claimed?.task;
+      // แอดมินเปลี่ยน AI ระหว่างรอบ: สลับตามแล้วจองใหม่ครั้งเดียว
+      if (!task && claimed?.preferred_agent && claimed.preferred_agent !== reader.agent && AGENTS[claimed.preferred_agent]) {
+        reader = resolveReader(claimed.preferred_agent);
+        await log(`แอดมินเปลี่ยนเป็น ${reader.agent} ระหว่างรอบ`);
+        task = (await call('POST', '/api/ai-runner/claim', { agent: reader.agent, model: reader.model || 'default' }))?.task;
+      }
       if (!task) break;
-      const outcome = await processTask(call, task);
+      const outcome = await processTask(call, task, reader);
       if (outcome === 'stop') { stopped = true; break; }
       counts[outcome] += 1;
     }
@@ -308,7 +340,7 @@ const runOnce = async () => {
       const finish = await call('POST', '/api/ai-runner/finish');
       await log(`จับคู่บิล–สลิป: เสนอคู่ใหม่ ${finish.matched} คู่`);
     }
-    await log(`จบรอบ (${settings.agent}): อ่านสำเร็จ ${counts.done}, ไม่สำเร็จ ${counts.failed}${stopped ? ', หยุดเพราะตัวอ่านใช้งานไม่ได้' : ''}`);
+    await log(`จบรอบ (${reader.agent}): อ่านสำเร็จ ${counts.done}, ไม่สำเร็จ ${counts.failed}${stopped ? ', หยุดเพราะตัวอ่านใช้งานไม่ได้' : ''}`);
     return stopped ? 75 : 0;
   } finally {
     await releaseLock();
@@ -342,6 +374,8 @@ const installLaunchd = async () => {
     '--server', settings.server, '--agent', settings.agent, '--max', String(settings.max),
     '--timeout-sec', String(settings.timeoutMs / 1000), '--work-dir', settings.workDir, '--token-file', settings.tokenFile,
     ...(settings.model ? ['--model', String(settings.model)] : []),
+    ...(settings.claudeModel ? ['--claude-model', String(settings.claudeModel)] : []),
+    ...(settings.codexModel ? ['--codex-model', String(settings.codexModel)] : []),
     ...(settings.claudeBin !== 'claude' ? ['--claude-bin', settings.claudeBin] : []),
     ...(settings.codexBin !== 'codex' ? ['--codex-bin', settings.codexBin] : [])];
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
