@@ -9,6 +9,9 @@ const sendJson = (res, status, value, headers = {}) => {
   res.end(JSON.stringify(value));
 };
 const esc = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+// Claude hosted apps (web, Desktop, mobile) share one fixed callback; claude.com is Anthropic's announced future host.
+const CLAUDE_CALLBACKS = new Set(['https://claude.ai/api/mcp/auth_callback', 'https://claude.com/api/mcp/auth_callback']);
+const clientLabel = uri => CLAUDE_CALLBACKS.has(uri) ? 'Claude' : 'ChatGPT';
 
 export function createOAuth(config, env = process.env) {
   const publicUrl = String(env.BUSINESS_PUBLIC_URL || '').replace(/\/$/, '');
@@ -41,6 +44,7 @@ export function createOAuth(config, env = process.env) {
     return config.clients.find(c => c.name === claims.sub) || null;
   };
   const redirectAllowed = uri => {
+    if (CLAUDE_CALLBACKS.has(uri)) return true;
     try {
       const parsed = new URL(uri);
       return parsed.protocol === 'https:' && parsed.hostname === 'chatgpt.com' && (/^\/connector\/oauth\/[A-Za-z0-9_-]+$/.test(parsed.pathname) || parsed.pathname === '/connector_platform_oauth_redirect') && !parsed.hash;
@@ -74,6 +78,11 @@ export function createOAuth(config, env = process.env) {
     scopes_supported: ['business.read']
   };
   const challenge = `Bearer resource_metadata="${publicUrl}/.well-known/oauth-protected-resource", scope="business.read"`;
+  // One protected resource: the Gateway origin (Claude URL), its trailing-slash form, or the /mcp endpoint (ChatGPT URL).
+  // An absent RFC 8707 resource or scope means this Gateway's only resource and only scope; tokens keep aud=publicUrl.
+  const resourceAliases = new Set([publicUrl, `${publicUrl}/`, `${publicUrl}/mcp`]);
+  const resourceAccepted = value => value === null || resourceAliases.has(value);
+  const scopeAccepted = value => value === null || value.split(' ').includes('business.read');
 
   async function route(req, res, parsed) {
     if (req.method === 'GET' && parsed.pathname === '/.well-known/oauth-protected-resource') {sendJson(res, 200, metadata); return true;}
@@ -97,11 +106,11 @@ export function createOAuth(config, env = process.env) {
       const client = clientForId(q.get('client_id'));
       const state = q.get('state') || '';
       const challengeValue = q.get('code_challenge') || '';
-      if (!client || q.get('redirect_uri') !== client.redirect_uri || q.get('response_type') !== 'code' || q.get('code_challenge_method') !== 'S256' || !/^[A-Za-z0-9_-]{43,128}$/.test(challengeValue) || !state || state.length > 2048 || q.get('resource') !== publicUrl || !String(q.get('scope') || '').split(' ').includes('business.read')) {sendJson(res, 400, {error: 'invalid_request'}); return true;}
+      if (!client || q.get('redirect_uri') !== client.redirect_uri || q.get('response_type') !== 'code' || q.get('code_challenge_method') !== 'S256' || !/^[A-Za-z0-9_-]{43,128}$/.test(challengeValue) || !state || state.length > 2048 || !resourceAccepted(q.get('resource')) || !scopeAccepted(q.get('scope'))) {sendJson(res, 400, {error: 'invalid_request'}); return true;}
       const tx = b64(randomBytes(24));
       transactions.set(tx, {clientId: q.get('client_id'), redirectUri: client.redirect_uri, state, challenge: challengeValue, expires: Date.now() + 600000});
-      const html = `<!doctype html><html lang="th"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SOLAO Business MCP</title><body><main style="font:16px system-ui;max-width:32rem;margin:3rem auto;padding:1rem"><h1>อนุญาตการอ่านข้อมูล SOLAO</h1><p>ChatGPT ขอสิทธิ์ <strong>business.read</strong> สำหรับสาขาที่กำหนดไว้ใน Gateway ไม่มีสิทธิ์แก้ข้อมูล</p><form action="/oauth/authorize" method="post"><input type="hidden" name="tx" value="${esc(tx)}"><label>รหัสผ่านเจ้าของ <input type="password" name="password" required autocomplete="current-password"></label><p><label><input type="checkbox" name="consent" value="yes" required> ยืนยันการเชื่อมต่อแบบอ่านอย่างเดียว</label></p><button type="submit">อนุญาต</button></form></main></body></html>`;
-      res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://chatgpt.com/connector_platform_oauth_redirect https://chatgpt.com/connector/oauth/; base-uri 'none'; frame-ancestors 'none'", 'X-Frame-Options': 'DENY'});
+      const html = `<!doctype html><html lang="th"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SOLAO Business MCP</title><body><main style="font:16px system-ui;max-width:32rem;margin:3rem auto;padding:1rem"><h1>อนุญาตการอ่านข้อมูล SOLAO</h1><p>${esc(clientLabel(client.redirect_uri))} (<strong>${esc(new URL(client.redirect_uri).hostname)}</strong>) ขอสิทธิ์ <strong>business.read</strong> สำหรับสาขาที่กำหนดไว้ใน Gateway ไม่มีสิทธิ์แก้ข้อมูล</p><form action="/oauth/authorize" method="post"><input type="hidden" name="tx" value="${esc(tx)}"><label>รหัสผ่านเจ้าของ <input type="password" name="password" required autocomplete="current-password"></label><p><label><input type="checkbox" name="consent" value="yes" required> ยืนยันการเชื่อมต่อแบบอ่านอย่างเดียว</label></p><button type="submit">อนุญาต</button></form></main></body></html>`;
+      res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://chatgpt.com/connector_platform_oauth_redirect https://chatgpt.com/connector/oauth/ ${[...CLAUDE_CALLBACKS].join(' ')}; base-uri 'none'; frame-ancestors 'none'`, 'X-Frame-Options': 'DENY'});
       res.end(html);
       return true;
     }
@@ -138,7 +147,7 @@ export function createOAuth(config, env = process.env) {
         const basicSecret = separator >= 0 ? decodeURIComponent(basicDecoded.slice(separator + 1)) : '';
         const clientId = input.get('client_id') || basicId;
         const client = clientForId(clientId);
-        if (!client || input.get('resource') !== publicUrl) throw new Error('Invalid client');
+        if (!client || !resourceAccepted(input.get('resource'))) throw new Error('Invalid client');
         if (client.auth_method === 'client_secret_post' && !safeEqual(Buffer.from(input.get('client_secret') || ''), Buffer.from(sign(`secret:${clientId}`)))) throw new Error('Invalid client secret');
         if (client.auth_method === 'client_secret_basic') {
           if (basicId !== clientId || !safeEqual(Buffer.from(basicSecret || ''), Buffer.from(sign(`secret:${clientId}`)))) throw new Error('Invalid client secret');

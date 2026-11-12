@@ -16,7 +16,10 @@ export function createHttpServer(config, env = process.env) {
   const parsed = new URL(req.url || '/', 'http://localhost');
   if (oauth && await oauth.route(req, res, parsed)) return;
   if (req.url === '/health' && req.method === 'GET') {res.writeHead(200, {'Content-Type': 'application/json'}); res.end(JSON.stringify({status: 'ok', service: 'business-mcp'})); return;}
-  if (req.url !== '/mcp' || req.method !== 'POST') {res.writeHead(404); res.end(); return;}
+  // `/mcp` is the ChatGPT URL; `/` lets Claude use the bare origin so it equals the protected-resource `resource` exactly.
+  if (req.url !== '/mcp' && req.url !== '/') {res.writeHead(404); res.end(); return;}
+  // Stateless JSON transport: no standalone SSE stream or session DELETE (MCP Streamable HTTP answers these with 405).
+  if (req.method !== 'POST') {res.writeHead(405, {Allow: 'POST'}); res.end(); return;}
   if (req.headers.origin) {res.writeHead(403); res.end(); return;}
   const bearer = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1];
   const client = clientForBearer(config, req.headers.authorization) || (bearer && oauth?.verifyToken(bearer));
