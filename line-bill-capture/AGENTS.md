@@ -417,6 +417,14 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 3. **Matching** (`scoreSequencePair`): amount is the first gate. A bill/slip pair outside both
    amount tolerances is not a candidate regardless of time proximity. Remaining candidates score
    amount closeness + same group + time gap + AI confidence + identity/reference evidence.
+   Identity evidence (2026-11-12, from Oct/Nov 2569 low-score review): an exact-amount slip to the
+   market account (7193 / ศิริลักษณ์; the surname เวียงแสง alone is not enough) is a market-account
+   refund; a bill-vendor → slip-recipient pair already seen in a confirmed single (non-grouped)
+   match is learned identity (unreadable names are never learned); TikTok Shop is a known
+   marketplace; a marketplace-payment slip against a bill without a detected channel is neutral,
+   not a conflict. A remaining name conflict on an exact same-group pair within 6 hours costs −15
+   (else −40), so it stays below the high-confidence threshold. Covered by
+   `scripts/match-identity-test.mjs`.
    `>= AI_SEQUENCE_MATCH_MIN_SCORE` → candidate. Every AI-created candidate is `pending`, including
    exact same-source pairs above `AI_AUTO_MATCH_MIN_SCORE`; only an authenticated human action may
    set `confirmed`. Exact candidates are ordered before non-exact candidates. A higher-scoring AI pending pair may replace a lower machine-only

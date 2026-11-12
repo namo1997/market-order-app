@@ -753,7 +753,7 @@ const marketAccountReimbursementFromContext = (analysis, nearbyText = [], { item
   if (!['transfer', 'transfer_notice'].includes(normalizeCategory(analysis?.category || analysis?.document_type))) return null;
   const visualText = `${analysis?.raw_text || ''} ${analysis?.summary || ''}`;
   const companyOutbound = /(?:จาก|FROM)\s*(?:บจก\.?|บริษัท)?\s*โซลาว/i.test(visualText);
-  const marketAccount = /(?:ไปยัง|ถึง|TO)[\s\S]{0,180}(?:7193|ศิริลักษณ์|ศิริลัก|เวียงแสง)/i.test(visualText);
+  const marketAccount = /(?:ไปยัง|ถึง|TO)[\s\S]{0,180}(?:7193|ศิริลักษณ์|ศิริลัก)/i.test(visualText);
   const amount = Number(analysis?.slip_amount_value || parseMoney(visualText.match(/จำนวน(?:เงิน)?\s*([0-9][0-9,]*(?:\.\d+)?)/i)?.[1]) || 0);
   const itemTime = Number(item?.event_timestamp_ms || 0);
   if (!companyOutbound || !marketAccount || !(amount > 0) || !itemTime) return null;
@@ -780,10 +780,15 @@ const marketAccountReimbursementFromContext = (analysis, nearbyText = [], { item
   return candidates[0] || null;
 };
 
+// บัญชีค่าใช้จ่ายตลาดสด: น.ส. ศิริลักษณ์ เวียงแสง ลงท้าย 7193. นามสกุล "เวียงแสง" อย่างเดียว
+// ไม่พอ เพราะผู้รับเงินคนอื่นก็ใช้นามสกุลนี้ (เช่น นาง นิตยา เวียงแสง ร้านดอกไม้)
+const MARKET_ACCOUNT_PATTERN = /7193|ศิริลักษณ์|ศิริลัก/i;
+
 const detectKnownMarketplace = (text) => {
   const value = String(text || '');
   if (/Shopee|ช้อปปี้/i.test(value)) return 'Shopee';
   if (/Lazada|ลาซาด้า/i.test(value)) return 'Lazada';
+  if (/Tik\s*Tok|ติ๊กต[๊็]อก|ติ๊กตอก|ติกต[๊็]อก/i.test(value)) return 'TikTok Shop';
   if (/รายละเอียดคำสั่งซื้อ/i.test(value) && /ร้านแนะนำ/i.test(value) && /ชำระเงินภายใน/i.test(value)) return 'Shopee';
   return '';
 };
@@ -1819,14 +1824,14 @@ const structuredMarketReimbursement = (item) => {
   const result = parsedAiResult(item);
   const payerIsCompany = /โซลาว|SOLAO/i.test(String(result.payer_account_name || ''));
   const recipientIsMarket = /7193\s*-?\s*X?\s*$/i.test(String(result.recipient_account_masked || '').trim())
-    || /ศิริลักษณ์|ศิริลัก|เวียงแสง/.test(String(result.recipient_name || ''));
+    || MARKET_ACCOUNT_PATTERN.test(String(result.recipient_name || ''));
   return payerIsCompany && recipientIsMarket;
 };
 
 export const isMarketAccountReimbursement = (item) => {
   if (paymentRoleOf(item) !== 'reimbursement') return false;
   const structured = structuredMarketReimbursement(item);
-  const marketAccountShown = /7193|ศิริลักษณ์|ศิริลัก|เวียงแสง/i
+  const marketAccountShown = MARKET_ACCOUNT_PATTERN
     .test(`${item?.ai_raw_text || item?.raw_text || ''} ${item?.ai_summary || item?.summary || ''}`);
   if (!marketAccountShown && !structured) return false;
   return structured || MARKET_REIMBURSEMENT_WORDING.test([reimbursementText(item), ...itemEvidence(item)].join(' '));
@@ -1940,30 +1945,76 @@ const extractSlipRecipient = (slip) => {
   return String(match?.[1] || '').trim();
 };
 
-const identityEvidenceForPair = ({ bill, slip, billIdentity, slipIdentity, marketTransferAmount, referenceMatch }) => {
+// คีย์จำคู่ "ชื่อร้านในบิล → ชื่อผู้รับในสลิป" ที่คนยืนยันแล้ว ใช้ normalizeIdentity เดียวกับตอนเทียบชื่อ
+export const learnedRecipientKey = (billName, recipientName) => {
+  const left = normalizeIdentity(billName).replace(/\s+/g, '');
+  const right = normalizeIdentity(recipientName).replace(/\s+/g, '');
+  return left.length >= 2 && right.length >= 2 ? `${left}|${right}` : '';
+};
+
+const UNREADABLE_NAME_PATTERN = /อ่านไม่ชัด|อ่านไม่ออก|ไม่ทราบชื่อ|unknown|unreadable/i;
+
+// สร้างชุดคู่ร้าน→ผู้รับจากคู่ที่ยืนยันแล้ว เฉพาะคู่เดี่ยว (ไม่ใช่ชุดหลายบิล/หลายสลิป เพราะเส้นในชุด
+// ไม่ได้บอกว่าบิลใบไหนจ่ายด้วยสลิปใบไหน) และข้ามชื่อร้านที่ AI อ่านไม่ชัด
+export const buildLearnedRecipientPairs = (pairs = []) => {
+  const learned = new Set();
+  for (const { billName, slip } of pairs) {
+    const name = String(billName || '').trim();
+    if (!name || UNREADABLE_NAME_PATTERN.test(name)) continue;
+    const recipient = extractSlipRecipient(slip);
+    if (!recipient || UNREADABLE_NAME_PATTERN.test(recipient)) continue;
+    const key = learnedRecipientKey(name, recipient);
+    if (key) learned.add(key);
+  }
+  return learned;
+};
+
+const identityEvidenceForPair = ({ bill, slip, billIdentity, slipIdentity, marketTransferAmount, referenceMatch, exactAmount = false, learnedRecipients = null }) => {
   const billNames = [bill?.supplier_name, bill?.vendor_name].map((value) => String(value || '').trim()).filter(Boolean);
   const slipRecipient = extractSlipRecipient(slip);
   const slipNames = [slip?.vendor_name, slipRecipient].map((value) => String(value || '').trim()).filter(Boolean);
   const genericMatch = billNames.some((billName) => slipNames.some((slipName) => identitiesOverlap(billName, slipName)))
     || billNames.some((billName) => identitiesOverlap(billName, slipIdentity));
+  const learnedRecipientMatch = Boolean(
+    learnedRecipients?.size
+    && slipRecipient
+    && billNames.some((billName) => learnedRecipients.has(learnedRecipientKey(billName, slipRecipient)))
+  );
   const billMarketplace = detectKnownMarketplace(`${billIdentity} ${bill?.bill_purpose || ''}`);
   const slipMarketplace = detectKnownMarketplace(slipIdentity);
   const marketplaceMatch = Boolean(billMarketplace && slipMarketplace && billMarketplace === slipMarketplace);
   const marketplaceConflict = Boolean(billMarketplace && slipMarketplace && billMarketplace !== slipMarketplace);
+  // สลิปจ่ายผ่าน Shopee/Lazada/TikTok ผู้รับเงินคือแพลตฟอร์ม ไม่ใช่ร้าน จึงเทียบชื่อร้านไม่ได้
+  // ถ้าบิลไม่บอกช่องทาง ให้ถือว่าไม่มีหลักฐานทั้งยืนยันและขัดแย้ง
+  const marketplacePaymentUnknownBill = Boolean(slipMarketplace && !billMarketplace);
   const makroBill = isCpAxtraBill(bill);
   const cpAxtraSlip = isCpAxtraSlip(slip);
   const cpAxtraBrandMatch = Boolean(makroBill && cpAxtraSlip);
-  const marketAccountSlip = /x7193|ศิริลัก|เวียงแสง/i.test(slipIdentity);
+  const marketAccountSlip = MARKET_ACCOUNT_PATTERN.test(slipIdentity);
   const marketPair = Boolean(marketTransferAmount > 0 && marketAccountSlip);
   const marketExpenseReimbursementPair = Boolean(
     isMarketAccountReimbursement(slip)
     && marketAccountSlip
     && /ตลาด/i.test(`${bill?.bill_purpose || ''} ${bill?.ai_summary || ''}`)
   );
+  // บัญชีตลาด 7193 สำรองจ่ายค่าของ (วัสดุ น้ำมัน หลอดไฟ) แล้วบริษัทโอนคืนยอดเท่าบิล
+  // สลิปมักถูกจัดเป็น ordinary_payment และ bill_purpose ไม่มีคำว่า "ตลาด" จึงใช้ยอดตรงเป็นหลักฐาน
+  const marketAccountRefundPair = Boolean(
+    exactAmount
+    && marketAccountSlip
+    && !marketPair
+    && !marketExpenseReimbursementPair
+    && !isMarketSheet(bill)
+    && !cpAxtraSlip
+    && !slipMarketplace
+  );
   const provincialWaterMatch = /การประปาส่วนภูมิภาค/.test(billIdentity)
     && /การประปาส่วนภูมิภาค/.test(slipIdentity);
-  const specialMatch = referenceMatch || cpAxtraBrandMatch || marketPair || marketExpenseReimbursementPair || provincialWaterMatch || marketplaceMatch;
-  const explicitRecipientMismatch = Boolean(billNames.length && slipNames.length && !genericMatch && !specialMatch);
+  const specialMatch = referenceMatch || cpAxtraBrandMatch || marketPair || marketExpenseReimbursementPair
+    || marketAccountRefundPair || provincialWaterMatch || marketplaceMatch || learnedRecipientMatch;
+  const explicitRecipientMismatch = Boolean(
+    billNames.length && slipNames.length && !genericMatch && !specialMatch && !marketplacePaymentUnknownBill
+  );
   const identityConflict = marketplaceConflict
     || (cpAxtraSlip && !makroBill)
     || (isMarketSheet(bill) && slipNames.length > 0 && !marketAccountSlip)
@@ -1977,6 +2028,8 @@ const identityEvidenceForPair = ({ bill, slip, billIdentity, slipIdentity, marke
     genericMatch,
     marketPair,
     marketExpenseReimbursementPair,
+    marketAccountRefundPair,
+    learnedRecipientMatch,
     provincialWaterMatch,
     identityConfirmed: Boolean(specialMatch || genericMatch),
     identityConflict,
@@ -2026,7 +2079,16 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
   // Fallback groups are a guarded second pass. Near amounts remain available
   // in the manual picker but are not proposed automatically.
   if (crossSourceFallback && !referenceMatch && (!hasAmounts || diff > config.amountTolerance)) return null;
-  const identity = identityEvidenceForPair({ bill, slip, billIdentity, slipIdentity, marketTransferAmount, referenceMatch });
+  const identity = identityEvidenceForPair({
+    bill,
+    slip,
+    billIdentity,
+    slipIdentity,
+    marketTransferAmount,
+    referenceMatch,
+    exactAmount: diff <= config.amountTolerance,
+    learnedRecipients: config.learnedRecipients
+  });
   // A single bill/slip proposal must reconcile on its own. Large differences are handled by
   // the explicit many-to-many workflow, otherwise non-amount signals can flood the queue.
   if (diff > config.amountTolerance && diffPercent > config.percentTolerance) return null;
@@ -2066,6 +2128,7 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
   const identityScore = referenceMatch
     ? 0
     : cpAxtraBrandMatch || provincialWaterMatch || marketPair || marketExpenseReimbursementPair
+        || identity.marketAccountRefundPair || identity.learnedRecipientMatch
       ? 12
       : identity.marketplaceMatch
         ? 8
@@ -2078,7 +2141,9 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
   const closeExactCandidate = diff <= config.amountTolerance
     && bill.source_id === slip.source_id
     && hours <= 6;
-  const identityPenalty = identity.identityConflict ? (closeExactCandidate ? -30 : -40) : 0;
+  // ยอดตรง กลุ่มเดียวกัน ห่างไม่เกิน 6 ชม. แทบทุกครั้งเป็นคู่จริง (ต.ค. 69 คนยืนยันทั้ง 20 คู่ที่ชื่อขัดแย้ง)
+  // จึงหักเบาลง แต่ยังต่ำกว่าเกณฑ์มั่นใจสูงเพื่อให้คนเห็นว่าชื่อไม่ตรง
+  const identityPenalty = identity.identityConflict ? (closeExactCandidate ? -15 : -40) : 0;
   const referenceScore = referenceMatch ? 20 : 0;
   const score = Math.max(0, Math.min(99, amountScore + sourceScore + senderScore + timeScore + aiScore + identityScore + identityPenalty + referenceScore));
   const contextualReasons = [
@@ -2098,6 +2163,8 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
       marketTransferAmount > 0 ? `ยอดซื้อของตลาด ${documentAmount}` : 'ใช้ยอดเอกสารจับคู่',
       marketPair ? 'โอนเข้าบัญชีค่าใช้จ่ายตลาดสด (ลงท้าย 7193)' : null,
       marketExpenseReimbursementPair ? 'คืนเงินเข้าบัญชีตลาดสำหรับค่าใช้จ่ายที่บัญชีตลาดสำรองจ่าย' : null,
+      identity.marketAccountRefundPair ? 'โอนคืนบัญชีตลาด (ลงท้าย 7193) ที่สำรองจ่ายค่าบิลนี้ ยอดตรงกัน' : null,
+      identity.learnedRecipientMatch ? `เคยยืนยันแล้วว่าร้านนี้รับเงินผ่าน ${identity.slipRecipient}` : null,
       hasAmounts ? `ยอดสลิป ${slipAmount}` : 'ไม่พบยอดสลิป',
       hasAmounts ? `ส่วนต่าง ${diff.toFixed(2)}` : 'ให้คนตรวจยอด',
       bill.source_id === slip.source_id ? 'กลุ่มเดียวกัน' : crossSourceFallback ? 'ค้นจากกลุ่มสำรองหลังกลุ่มเดิมไม่พบคู่' : 'คนละกลุ่ม',
@@ -2146,6 +2213,27 @@ const loadAllMatchesByStatus = async (status) => {
     offset += page.length;
   }
   return matches;
+};
+
+// ข้อความสลิปไม่เปลี่ยนบ่อย เก็บไว้ข้ามรอบ worker เพื่อไม่ต้องอ่านสลิปที่ยืนยันแล้วซ้ำทุกรอบ
+const confirmedSlipCache = new Map();
+
+const loadLearnedRecipients = async (confirmedMatches = []) => {
+  const singles = confirmedMatches.filter((match) => !match.match_group_key && String(match.bill_vendor_name || '').trim());
+  const pairs = [];
+  for (const match of singles) {
+    const slipId = Number(match.slip_item_id || 0);
+    if (!slipId) continue;
+    const cacheKey = `${slipId}:${match.updated_at || ''}`;
+    let slip = confirmedSlipCache.get(cacheKey);
+    if (slip === undefined) {
+      const item = await getItemById(slipId).catch(() => null);
+      slip = item ? { ai_raw_text: item.ai_raw_text, ai_summary: item.ai_summary } : null;
+      confirmedSlipCache.set(cacheKey, slip);
+    }
+    if (slip) pairs.push({ billName: match.bill_vendor_name, slip });
+  }
+  return buildLearnedRecipientPairs(pairs);
 };
 
 const pairKey = (billId, slipId) => `${Number(billId || 0)}:${Number(slipId || 0)}`;
@@ -2210,6 +2298,8 @@ export const autoMatchAiPairs = async (config = getAiConfig(), { scope = 'all' }
   const activeMatches = [...pendingMatches, ...confirmedMatches, ...manualReviewMatches];
   const activeByItem = new Map();
   activeMatches.forEach((match) => addActiveMatch(activeByItem, match));
+  const learnedRecipients = await loadLearnedRecipients(confirmedMatches);
+  const scoringConfig = { ...config, learnedRecipients };
   const manualRejectionBlacklist = new Set(
     rejectedMatches.filter(isHumanControlledMatch).map((match) => pairKey(match.bill_item_id, match.slip_item_id))
   );
@@ -2229,7 +2319,7 @@ export const autoMatchAiPairs = async (config = getAiConfig(), { scope = 'all' }
   for (const bill of bills) {
     for (const slip of slips) {
       if (manualRejectionBlacklist.has(pairKey(bill.id, slip.id))) continue;
-      const scored = scoreSequencePair({ bill, slip, config });
+      const scored = scoreSequencePair({ bill, slip, config: scoringConfig });
       if (scored && scored.score >= config.sequenceMatchMinScore) {
         candidates.push({ bill, slip, scored });
       }
