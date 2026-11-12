@@ -919,7 +919,7 @@ const BHINT={leftover:'รายการที่ยังปิดรอบไ
 const bucketTone=k=>(BUCKETS.find(b=>b.k===k)||{}).tone||'other';
 const liveItem=x=>x&&x.status!=='unsent'&&x.status!=='duplicate';
 // ใบกำกับหลายหน้า: doc_ref (เลขที่ใบกำกับภาษี) เหมือนกันทุกหน้า ใช้จับกลุ่ม
-const sameInvoice=(a,b)=>{const tax=x=>String(x.vendor_tax_id||'').trim(),name=x=>(String(x.vendor_name||'').trim()||String(x.supplier_name||'').trim()).toLowerCase();return Boolean(a&&b&&a.source_type===b.source_type&&a.source_id===b.source_id&&String(a.doc_ref||'').trim()&&String(a.doc_ref).trim()===String(b.doc_ref||'').trim()&&(tax(a)&&tax(b)?tax(a)===tax(b):name(a)&&name(a)===name(b)))};
+const sameInvoice=(a,b)=>{const tax=x=>String(x.vendor_tax_id||'').trim(),name=x=>(String(x.vendor_name||'').trim()||String(x.supplier_name||'').trim()).toLowerCase(),cpAxtra=x=>/makro|แม็คโคร|แมคโคร|ซ์ตร้า|axtra/.test(name(x));return Boolean(a&&b&&a.source_type===b.source_type&&a.source_id===b.source_id&&String(a.doc_ref||'').trim()&&String(a.doc_ref).trim()===String(b.doc_ref||'').trim()&&(cpAxtra(a)&&cpAxtra(b)?true:tax(a)&&tax(b)?tax(a)===tax(b):name(a)&&name(a)===name(b)))};
 const docPages=document=>document?(S.pool||S.items).filter(y=>liveItem(y)&&sameInvoice(document,y)):[];
 const docHasPayable=document=>docPages(document).some(y=>y.category==='bill'&&Number(y.bill_total_value)>0);
 const isOrphanPage=x=>x.category==='bill_page'&&!(x.document_has_payable!==undefined?Boolean(Number(x.document_has_payable)):docHasPayable(x));

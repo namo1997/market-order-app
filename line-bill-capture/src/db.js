@@ -120,6 +120,34 @@ const normalizeTaxId = (value) => {
   return digits.length === 13 ? digits : null;
 };
 
+// อ่านเฉพาะเลขที่อยู่หลังป้าย "เลขประจำตัวผู้เสียภาษี" (รับเลขที่พิมพ์เว้นวรรค) ใช้ซ่อมข้อมูลเก่าได้ปลอดภัย
+const extractLabeledTaxId = (value) => normalizeTaxId(
+  String(value || '').match(/(?:เลขประจำตัวผู้เสียภาษี|เลขผู้เสียภาษี|TAX\s*ID|TAXID)[^\d]{0,24}([\d\s-]{13,20})/i)?.[1]
+);
+
+// หน้าประกอบเคยไม่ถูกเก็บเลขผู้เสียภาษี จึงจับคู่กับหน้ายอดรวมไม่ได้ เติมจากข้อความที่ AI อ่านไว้แล้ว
+const repairPageTaxIdsSync = (database) => {
+  const statement = database.prepare(
+    `SELECT id, ai_raw_text FROM capture_items
+     WHERE category IN ('bill', 'bill_page') AND COALESCE(trim(vendor_tax_id), '') = ''
+       AND COALESCE(ai_raw_text, '') <> ''`
+  );
+  let rows;
+  try {
+    rows = allRows(statement);
+  } finally {
+    statement.free();
+  }
+  for (const row of rows) {
+    const taxId = extractLabeledTaxId(row.ai_raw_text);
+    if (!taxId) continue;
+    database.run(
+      `UPDATE capture_items SET vendor_tax_id = ? WHERE id = ? AND COALESCE(trim(vendor_tax_id), '') = ''`,
+      [taxId, Number(row.id)]
+    );
+  }
+};
+
 const extractTaxId = (value) => {
   const text = String(value || '');
   const labeled = text.match(/(?:เลขประจำตัวผู้เสียภาษี|เลขผู้เสียภาษี|TAX\s*ID|TAXID)[^\d]{0,24}([\d\s-]{13,20})/i);
@@ -767,6 +795,7 @@ export const initDatabase = async () => {
     repairLegacyAiConfirmedMatchesSync(db);
     repairInvalidActiveMatchesSync(db);
     repairLegacyClosingTransactionDatesSync(db);
+    repairPageTaxIdsSync(db);
     staleUnsentPaths = clearLegacyUnsentStoragePathsSync(db);
     reconcileCaptureItemMatchStateSync(db);
     db.run('COMMIT');
@@ -1312,12 +1341,17 @@ const getItemByMessageIdSync = (database, lineMessageId) => {
 
 // Invoice identity is scoped to the LINE source and a reliable supplier identity.
 // An invoice number alone must never clear an orphan in another branch/vendor.
+// แม็คโครเขียนชื่อได้หลายแบบในบิลหน้าเดียวกัน (บริษัท/บมจ./makro/สาขา…) และ AI อ่านเลขผู้เสียภาษี
+// เพี้ยนบ่อย จึงถือชื่อกลุ่มเดียวกันเป็นผู้ขายเดียวกัน ต้องตรงทั้งกลุ่ม LINE และเลขใบกำกับอยู่แล้ว
+const CP_AXTRA_NAME_PATTERNS = ['makro', 'แม็คโคร', 'แมคโคร', 'ซ์ตร้า', 'axtra'];
 const sameInvoiceSql = (a, b) => {
   const name = alias => `lower(trim(COALESCE(NULLIF(trim(${alias}.vendor_name), ''), ${alias}.supplier_name, '')))`;
+  const cpAxtra = alias => `(${CP_AXTRA_NAME_PATTERNS.map(pattern => `${name(alias)} LIKE '%${pattern}%'`).join(' OR ')})`;
   const tax = alias => `trim(COALESCE(${alias}.vendor_tax_id, ''))`;
   return `${a}.source_type = ${b}.source_type AND ${a}.source_id = ${b}.source_id
     AND trim(COALESCE(${a}.doc_ref, '')) <> '' AND trim(${a}.doc_ref) = trim(${b}.doc_ref)
-    AND (CASE WHEN ${tax(a)} <> '' AND ${tax(b)} <> '' THEN ${tax(a)} = ${tax(b)}
+    AND (CASE WHEN ${cpAxtra(a)} AND ${cpAxtra(b)} THEN 1
+      WHEN ${tax(a)} <> '' AND ${tax(b)} <> '' THEN ${tax(a)} = ${tax(b)}
       ELSE ${name(a)} <> '' AND ${name(a)} = ${name(b)} END)`;
 };
 const documentRelatedIdsSql = alias => `(SELECT json_group_array(p.id) FROM capture_items p
@@ -3624,7 +3658,7 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
       params.push(String(analysis.vendor_name || '').trim() || null);
     }
     const vendorTaxId = normalizeTaxId(analysis?.vendor_tax_id) || extractTaxId(analysis?.raw_text);
-    if (analyzedCategory === category && category === 'bill' && !current.vendor_tax_id && vendorTaxId) {
+    if (analyzedCategory === category && ['bill', 'bill_page'].includes(category) && !current.vendor_tax_id && vendorTaxId) {
       updates.push('vendor_tax_id = ?');
       params.push(vendorTaxId);
     }

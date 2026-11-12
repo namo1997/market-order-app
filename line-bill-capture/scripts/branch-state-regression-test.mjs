@@ -73,6 +73,23 @@ try {
   const anonymous=fixture('anonymous','bill_page','2026-10-02',0,'R-1',null);
   fixture('anonymous','bill','2026-10-02',100,'R-1',null);
   assert.equal((await row(anonymous.id)).document_has_payable,0);
+  // Makro page 1 (no tax ID, different spelling) sent right before page 2 with the total: one invoice.
+  const makroPage=fixture('makro','bill_page','2026-10-24',0,'041841253282','บริษัท ซีพี แอ็กซ์ตร้า จำกัด (มหาชน)');
+  fixture('makro','bill','2026-10-24',7258,'041841253282','บมจ.ซีพี แอ็กซ์ตร้า (makro) สาขาเชียงใหม่ 2','0107567000414');
+  assert.equal((await row(makroPage.id)).document_has_payable,1);
+  const makroPool=(await db.listItems({limit:1000})).rows;
+  assert.equal(uiDocuments(makroPool).isOrphanPage(makroPool.find(r=>r.id===makroPage.id)),false);
+  // Makro name alone never crosses LINE groups or invoice numbers.
+  fixture('makro-b','bill','2026-10-24',100,'041841253999','Makro','0107567000414');
+  const makroOther=fixture('makro','bill_page','2026-10-24',0,'041841253999','makro');
+  assert.equal((await row(makroOther.id)).document_has_payable,0);
+  // A continuation page keeps the spaced tax ID it printed, so it groups with the total page by tax ID.
+  const spacedPage=fixture('tax-page','bill','2026-10-24',0,'INV-77','ร้านตัวอย่าง');
+  await persistAnalysis({id:spacedPage.id,provider:'mock',model:'mock',analysis:{category:'bill',page_no:1,page_count:2,bill_total_value:null,doc_ref:'INV-77',raw_text:'ร้านตัวอย่าง เลขประจำตัวผู้เสียภาษี 1 23 4 567 89012 3 หน้าที่ 1 จาก 2'}});
+  assert.equal((await row(spacedPage.id)).category,'bill_page');
+  assert.equal((await row(spacedPage.id)).vendor_tax_id,'1234567890123');
+  fixture('tax-page','bill','2026-10-24',500,'INV-77','ร้านตัวอย่าง สาขา 2','1234567890123');
+  assert.equal((await row(spacedPage.id)).document_has_payable,1);
 
   // Concurrent images by other senders do not end A's own image/text context.
   const bill=fixture('chat','bill','2026-10-02');

@@ -290,12 +290,16 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 - `category_edit_reason` — the admin's typed explanation for a manual category correction such as **ไม่ใช่บิล** / **ไม่ใช่สลิป**.
 - `doc_ref` / `page_no` / `page_count` — multi-page invoices. `doc_ref` is the tax invoice number,
   printed identically on every page. Page association additionally requires the same source type/group
-  and reliable supplier identity: equal tax IDs when both are present, otherwise equal normalized
-  vendor/supplier names. A missing identity leaves the page in review; a reference alone never proves
-  a shared invoice. Item list/context expose `document_has_payable` and `document_related_ids_json`;
+  and reliable supplier identity: when both names are CP Axtra/Makro spellings (makro, แม็คโคร,
+  แมคโคร, …ซ์ตร้า, axtra) they are the same supplier; otherwise equal tax IDs when both are present,
+  otherwise equal normalized vendor/supplier names. A missing identity leaves the page in review; a
+  reference alone never proves a shared invoice. Keep `sameInvoiceSql` (db.js) and `sameInvoice`
+  (public/index.html) identical. Item list/context expose `document_has_payable` and `document_related_ids_json`;
   the desktop hydrates those related IDs across date boundaries for page previews and orphan buckets.
-- `vendor_tax_id` — normalized 13-digit tax ID printed on a bill. It is used with `doc_ref` and
-  the payable amount to detect the same invoice sent again even when the image bytes differ.
+- `vendor_tax_id` — normalized 13-digit tax ID printed on a bill or `bill_page` (spaced prints like
+  `0 10 7 567 00041 4` are accepted). It is used with `doc_ref` and the payable amount to detect the
+  same invoice sent again even when the image bytes differ, and to group invoice pages. Startup
+  `repairPageTaxIdsSync` fills missing values only from the labeled tax ID in `ai_raw_text`.
 - `duplicate_of_item_id` — points to the first identical image (dedup by `file_sha256`).
 - `download_attempt_count` — failed download cycles. `download_failed` rows remain retryable until
   `LINE_BILL_CAPTURE_DOWNLOAD_MAX_ATTEMPTS`; LINE unsend always wins over a late download result.
