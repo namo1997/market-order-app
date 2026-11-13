@@ -20,6 +20,16 @@ export const isStockCheckAbsoluteRow = (row) =>
   row?.balance_after !== undefined &&
   Number.isFinite(Number(row.balance_after));
 
+// A5: ยอดตั้งต้น (transaction_type 'initial') ก็เป็น "ยอดสัมบูรณ์ ณ เวลาตั้ง" เหมือนการนับ
+// ถ้ามีรายการย้อนเวลามาแทรกก่อน (ซิงค์ขายกลางคืน, แปรรูปย้อนวัน) ยอดหลังตั้งต้องยังเท่ากับที่ตั้งไว้
+export const isInitialAbsoluteRow = (row) =>
+  String(row?.transaction_type || '') === 'initial' &&
+  row?.balance_after !== null &&
+  row?.balance_after !== undefined &&
+  Number.isFinite(Number(row.balance_after));
+
+export const isAbsoluteLedgerRow = (row) => isStockCheckAbsoluteRow(row) || isInitialAbsoluteRow(row);
+
 /**
  * คำนวณ balance_before/after ของ ledger ใหม่ตามลำดับ (เรียงตาม created_at, id มาแล้ว)
  * - รายการปกติ: balance_after = balance_before + quantity
@@ -35,7 +45,7 @@ export const reflowLedgerRows = (orderedRows = []) => {
     const balanceBefore = running;
     let quantity;
     let balanceAfter;
-    if (isStockCheckAbsoluteRow(row)) {
+    if (isAbsoluteLedgerRow(row)) {
       balanceAfter = roundQty(row.balance_after);
       quantity = roundQty(balanceAfter - balanceBefore);
     } else {
@@ -50,6 +60,44 @@ export const reflowLedgerRows = (orderedRows = []) => {
     balance: running,
     lastTransactionId: orderedRows.length > 0 ? orderedRows[orderedRows.length - 1].id : null
   };
+};
+
+// ---------------------------------------------------------------------------
+// A7: เวลานับสต็อกที่ใช้ลง ledger
+// ---------------------------------------------------------------------------
+
+const parseUtcText = (value) => {
+  const text = String(value ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(text)) return null;
+  const ms = Date.parse(`${text.slice(0, 10)}T${text.slice(11, 19)}Z`);
+  return Number.isNaN(ms) ? null : ms;
+};
+
+/**
+ * เวลานับ = เวลาที่กรอกยอดสินค้านั้นครั้งแรก (stock_checks.created_at, UTC) บีบให้อยู่ในวันที่นับ (เวลาไทย)
+ * - ไม่ใช้ updated_at: การบันทึกฟอร์มซ้ำ/แก้ตัวเลขทีหลังขยับ updated_at ทำให้ยอดขายระหว่างนั้นถูกลบล้าง (ยอดเกินจริง)
+ * - กรอกย้อนหลัง (วันที่นับเป็นวันก่อน) → 23:59:59 ของวันที่นับ; กรอกล่วงหน้า → 00:00:00 ของวันที่นับ
+ * คืน 'YYYY-MM-DD HH:mm:ss' (UTC) สำหรับ created_at ของ ledger
+ */
+export const resolveStockCheckCountedAtUtc = (checkDate, createdAtUtc) => {
+  const dayStartUtc = bangkokDateStartToUtc(checkDate);
+  if (!dayStartUtc) {
+    const error = new Error('รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)');
+    error.statusCode = 400;
+    throw error;
+  }
+  const startMs = parseUtcText(dayStartUtc);
+  const lastMs = startMs + 24 * 3600 * 1000 - 1000;
+  const createdMs = parseUtcText(createdAtUtc);
+  const chosen = createdMs === null ? lastMs : Math.min(Math.max(createdMs, startMs), lastMs);
+  return toMysqlUtc(new Date(chosen));
+};
+
+// สูตรเดียวกับ resolveStockCheckCountedAtUtc ในรูป SQL (alias ของ stock_checks กำหนดโดยโค้ด ไม่ใช่ input ผู้ใช้)
+export const stockCheckCountedAtSql = (alias = 'sc') => {
+  const dayStart = `DATE_SUB(TIMESTAMP(${alias}.check_date), INTERVAL ${BANGKOK_UTC_OFFSET_HOURS} HOUR)`;
+  const dayLast = `DATE_ADD(${dayStart}, INTERVAL 86399 SECOND)`;
+  return `LEAST(GREATEST(COALESCE(${alias}.created_at, ${dayLast}), ${dayStart}), ${dayLast})`;
 };
 
 // ---------------------------------------------------------------------------

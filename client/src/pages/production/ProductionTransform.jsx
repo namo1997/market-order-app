@@ -6,7 +6,7 @@ import { Modal } from '../../components/common/Modal';
 import { productsAPI } from '../../api/products';
 import { inventoryAPI } from '../../api/inventory';
 import { useAuth } from '../../contexts/AuthContext';
-import { usageUnitOf, inputUnitLabel, toBaseQuantity, formatNumber } from '../../utils/usage-unit';
+import { usageUnitOf, inputUnitLabel, toBaseQuantity, formatNumber, getOverStockLines } from '../../utils/usage-unit';
 import { ProductionUsageUnitTab } from './ProductionUsageUnitTab';
 import { ProductionPackSizeTab } from './ProductionPackSizeTab';
 import { productPackSizesAPI } from '../../api/productPackSizes';
@@ -413,16 +413,30 @@ export const ProductionTransform = () => {
       const results = [];
       const savedItems = [];
       let failure = null;
+      let cancelled = false;
       for (const item of selectedOutputItems) {
+        const payload = {
+          transform_date: transformDate,
+          department_id: departmentId,
+          output_product_id: item.product_id,
+          output_quantity: item.quantity,
+          ingredients: item.ingredients || [],
+          notes: notes ? String(notes).trim() : ''
+        };
         try {
-          const response = await inventoryAPI.createProductionTransform({
-            transform_date: transformDate,
-            department_id: departmentId,
-            output_product_id: item.product_id,
-            output_quantity: item.quantity,
-            ingredients: item.ingredients || [],
-            notes: notes ? String(notes).trim() : ''
-          });
+          let response;
+          try {
+            response = await inventoryAPI.createProductionTransform(payload);
+          } catch (error) {
+            // วัตถุดิบเกินยอดที่มี (มักกรอกผิดหน่วย) → ให้เห็นจำนวน+หน่วยที่จะตัดจริงก่อน แล้วค่อยยืนยัน
+            const overStock = getOverStockLines(error);
+            if (!overStock) throw error;
+            if (!window.confirm(`"${item.product_name}" วัตถุดิบไม่พอ\n${overStock}\n\nหน่วยถูกต้อง บันทึกต่อ?`)) {
+              cancelled = true;
+              break;
+            }
+            response = await inventoryAPI.createProductionTransform({ ...payload, confirm_over_stock: true });
+          }
           results.push(response?.data || null);
           savedItems.push(item);
         } catch (error) {
@@ -436,17 +450,6 @@ export const ProductionTransform = () => {
       }
 
       if (savedItems.length > 0) {
-        const insufficientLines = results.flatMap((result) => {
-          const rows = Array.isArray(result?.insufficient_ingredients)
-            ? result.insufficient_ingredients
-            : [];
-          return rows.map((row) => {
-            const productName = String(row?.product_name || '-');
-            const shortageQty = Number(row?.shortage_quantity || 0);
-            return `- ${productName} ขาด ${shortageQty}`;
-          });
-        });
-
         const selectedUnitByProductId = new Map(
           savedItems.map((item) => [Number(item.product_id), item.product_unit || ''])
         );
@@ -474,17 +477,11 @@ export const ProductionTransform = () => {
         );
         setOutputQuantities(withoutSaved);
         setIngredientUsageByOutput(withoutSaved);
-        if (!failure) {
+        if (!failure && !cancelled) {
           setNotes('');
           setIsListModalOpen(false);
         }
         await loadData();
-
-        if (insufficientLines.length > 0) {
-          alert(
-            `บันทึกสำเร็จ แต่มีวัตถุดิบไม่พอ ระบบตัดติดลบให้แล้ว:\n${insufficientLines.join('\n')}`
-          );
-        }
       }
 
       if (failure) {
@@ -586,6 +583,7 @@ export const ProductionTransform = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">วันที่แปรรูป</label>
             <input
               type="date"
+              max={bangkokDate()}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
               value={transformDate}
               onChange={(event) => setTransformDate(event.target.value)}

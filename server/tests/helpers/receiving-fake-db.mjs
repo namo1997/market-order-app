@@ -1455,6 +1455,14 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const bal = state.inventoryBalances.get(key);
       return [bal ? [{ quantity: bal.quantity }] : []];
     }
+    if (q.startsWith('SELECT department_id, transaction_type, quantity FROM inventory_transactions')) {
+      return [state.inventoryTransactions
+        .filter((tx) => tx.reference_type === 'order_receiving'
+          && String(tx.reference_id) === String(params[0])
+          && Number(tx.product_id) === Number(params[1]))
+        .sort((a, b) => a.id - b.id)
+        .map((tx) => ({ department_id: tx.department_id, transaction_type: tx.transaction_type, quantity: tx.quantity }))];
+    }
     if (q.startsWith('INSERT INTO inventory_transactions')) {
       if (q.includes("'order_receiving'")) {
         const [

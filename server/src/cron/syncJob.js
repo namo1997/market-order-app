@@ -6,6 +6,8 @@ const SALES_SYNC_TIMEZONE = process.env.SALES_SYNC_TIMEZONE || 'Asia/Bangkok';
 const SALES_SYNC_CRON = process.env.SALES_SYNC_CRON || '30 23 * * *';
 const SALES_SYNC_RETRY_CRON = process.env.SALES_SYNC_RETRY_CRON || '0,30 0-5 * * *';
 const SALES_SYNC_RETRY_FINAL_CRON = process.env.SALES_SYNC_RETRY_FINAL_CRON || '0 6 * * *';
+// รอบหลังเที่ยงคืน: รอบหลัก 23:30 ไม่เห็นบิล 23:30–24:00 จึงดึงวันก่อนซ้ำอีกครั้ง (บิลที่ตัดแล้วถูกข้าม)
+const SALES_SYNC_CATCHUP_CRON = process.env.SALES_SYNC_CATCHUP_CRON || '15 1 * * *';
 const SALES_SYNC_STATUS_KEY = 'sales_sync_retry_status';
 
 const getDateStringInTimezone = (date, timeZone) => {
@@ -53,6 +55,52 @@ const readStatus = async () => {
 
 const writeStatus = async (status) => {
     await settingsModel.setSetting(SALES_SYNC_STATUS_KEY, JSON.stringify(status));
+};
+
+// เขียนสถานะไม่สำเร็จต้องไม่ทำให้การตัดสต็อกที่ commit แล้วถูกนับว่าล้ม (เคยทำให้ retry 14 ครั้ง/วัน)
+const writeStatusSafely = async (status) => {
+    try {
+        await writeStatus(status);
+        return true;
+    } catch (error) {
+        console.error('[Cron] Sales sync status write failed:', error?.message || error);
+        return false;
+    }
+};
+
+// ผลซิงค์เต็มมีรายการเมนูไม่มีสูตรเป็นพันแถว เกิน TEXT 64KB ของ system_settings → เก็บแค่ตัวเลขสรุป
+const MAX_STATUS_SAMPLES = 5;
+export const summarizeSyncResult = (result) => {
+    // controller ตอบ { success, data: {...} } → สรุปจาก data
+    const raw = result && typeof result === 'object' ? result : {};
+    const data = raw.data && typeof raw.data === 'object' ? raw.data : raw;
+    const count = (value) => (Array.isArray(value) ? value.length : 0);
+    const number = (value) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const sampleNames = (list) =>
+        Array.from(
+            new Set(
+                (Array.isArray(list) ? list : [])
+                    .map((row) => String(row?.name || row?.menu_name || row?.product_name || '').trim().slice(0, 60))
+                    .filter(Boolean)
+            )
+        ).slice(0, MAX_STATUS_SAMPLES);
+    return {
+        start: data.start ?? null,
+        end: data.end ?? null,
+        planned_deductions: number(data.planned_deductions),
+        applied_deductions: number(data.applied_deductions),
+        applied_quantity: number(data.applied_quantity),
+        skipped_existing: number(data.skipped_existing),
+        skipped_legacy_daily: number(data.skipped_legacy_daily),
+        unresolved_count: count(data.unresolved_items),
+        missing_recipes_count: count(data.missing_recipes),
+        missing_recipe_samples: sampleNames(data.missing_recipes),
+        missing_conversions_count: count(data.missing_conversions),
+        missing_branch_mapping_count: count(data.missing_branch_mapping)
+    };
 };
 
 const runSyncForDate = async ({ dateString, userId, source }) => {
@@ -165,7 +213,7 @@ const runSalesSyncAttempt = async (attempt) => {
             userId,
             source
         });
-        await writeStatus(
+        await writeStatusSafely(
             buildStatusBase({
                 state: 'success',
                 targetDate,
@@ -173,7 +221,7 @@ const runSalesSyncAttempt = async (attempt) => {
                 message: `ตัดสต็อกขายอัตโนมัติสำเร็จ (${source})`,
                 failureCount: 0,
                 lastError: null,
-                lastResult: result,
+                lastResult: summarizeSyncResult(result),
                 nextRetryAt: null
             })
         );
@@ -185,7 +233,7 @@ const runSalesSyncAttempt = async (attempt) => {
         const nextRetryAt = finalizeOnFail
             ? null
             : `อีก 30 นาที (จนถึง 06:00 ${SALES_SYNC_TIMEZONE})`;
-        await writeStatus(
+        await writeStatusSafely(
             buildStatusBase({
                 state: statusState,
                 targetDate,
@@ -208,6 +256,14 @@ const shouldRunRetry = (status, targetDate) => {
     if (!status) return false;
     if (String(status.target_date || '') !== String(targetDate)) return false;
     return status.state === 'pending';
+};
+
+// ดึงซ้ำหลังเที่ยงคืนเฉพาะเมื่อวันนั้นสำเร็จจากรอบ 23:30 เท่านั้น
+// (ถ้ายัง pending ให้ retry ทำ ถ้า retry/catch-up สำเร็จแล้วหลังเที่ยงคืน แปลว่าเห็นบิลครบแล้ว)
+export const shouldRunCatchUp = (status, targetDate) => {
+    if (!status) return false;
+    if (String(status.target_date || '') !== String(targetDate)) return false;
+    return status.state === 'success' && status.source === 'primary';
 };
 
 export const initSyncJob = () => {
@@ -267,8 +323,27 @@ export const initSyncJob = () => {
         timezone: SALES_SYNC_TIMEZONE
     }));
 
+    // Catch-up after midnight: bills 23:30-24:00 of the previous day were not visible at 23:30.
+    tasks.push(cron.schedule(SALES_SYNC_CATCHUP_CRON, async () => {
+        try {
+            const catchUpDate = getPreviousDateStringInTimezone(SALES_SYNC_TIMEZONE);
+            const status = await readStatus();
+            if (!shouldRunCatchUp(status, catchUpDate)) return;
+            console.log(`[Cron] Catch-up sales sync for date=${catchUpDate}`);
+            await attemptSalesSync({
+                targetDate: catchUpDate,
+                source: 'catch-up',
+                finalizeOnFail: false
+            });
+        } catch (error) {
+            console.error('[Cron] Unexpected error in catch-up sales sync:', error);
+        }
+    }, {
+        timezone: SALES_SYNC_TIMEZONE
+    }));
+
     console.log(
-        `[Cron] Sales sync schedules: primary=${SALES_SYNC_CRON}, retry=${SALES_SYNC_RETRY_CRON}, final=${SALES_SYNC_RETRY_FINAL_CRON}, timezone=${SALES_SYNC_TIMEZONE}`
+        `[Cron] Sales sync schedules: primary=${SALES_SYNC_CRON}, retry=${SALES_SYNC_RETRY_CRON}, final=${SALES_SYNC_RETRY_FINAL_CRON}, catch-up=${SALES_SYNC_CATCHUP_CRON}, timezone=${SALES_SYNC_TIMEZONE}`
     );
     return () => { for (const task of tasks) task?.stop(); };
 };

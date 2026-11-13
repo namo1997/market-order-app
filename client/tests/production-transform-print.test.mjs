@@ -331,3 +331,23 @@ test('transform page defaults to the Thai day and does not re-save items after a
   assert.match(source, /savedIds\.has\(Number\(productId\)\)/);
   assert.match(source, /setOutputQuantities\(withoutSaved\)/);
 });
+
+test('A1: over-stock 409 shows each ingredient with the unit it will really cut; other errors are not intercepted', async () => {
+  const { getOverStockLines } = await import('../src/utils/usage-unit.js');
+  const error = {
+    response: {
+      status: 409,
+      data: {
+        code: 'INGREDIENT_OVER_STOCK',
+        over_stock: [{ product_name: 'น้ำส้มสายชู', unit_label: 'แกลลอน', required_quantity: 1200, available_quantity: 4 }]
+      }
+    }
+  };
+  const lines = getOverStockLines(error);
+  assert.match(lines, /น้ำส้มสายชู/);
+  assert.match(lines, /1,200 แกลลอน/);
+  assert.match(lines, /มี 4 แกลลอน/);
+  assert.equal(getOverStockLines({ response: { status: 409, data: { code: 'OTHER' } } }), null);
+  assert.equal(getOverStockLines({ response: { status: 500 } }), null);
+  assert.equal(getOverStockLines(new Error('network')), null);
+});

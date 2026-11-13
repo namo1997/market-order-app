@@ -686,6 +686,56 @@ const createInventoryTransactionsForInternalTransfer = async ({
   };
 };
 
+// A4: แก้/ยกเลิกการรับของ ต้องลงสต็อกที่แผนกเดิมที่รับจริง (และต้นทางโอนเดิม)
+// ไม่ใช่แผนก "ปัจจุบัน" ของคนสั่ง (users.department_id) หรือ mapping ต้นทางปัจจุบัน
+// เพราะสองอย่างนี้เปลี่ยนได้หลังรับของ (ย้ายแผนกพนักงาน, ย้ายใบสั่ง, แก้ mapping สโตร์)
+// rows: inventory_transactions ของ order item + สินค้านี้ (reference_type='order_receiving') เรียงตาม id
+// คืน { targetDepartmentId, sourceDepartmentId|null } จากการลงสต็อกครั้งแรก หรือ null ถ้ายังไม่เคยลง
+export const resolvePostedReceivingRoute = (rows = []) => {
+  const list = Array.isArray(rows) ? rows : [];
+  const target = list.find(
+    (row) =>
+      ['receive', 'transfer_in'].includes(String(row?.transaction_type || '')) &&
+      Number(row?.quantity) > 0 &&
+      Number.isFinite(Number(row?.department_id))
+  );
+  if (!target) return null;
+  const targetDepartmentId = Number(target.department_id);
+  const source = list.find(
+    (row) =>
+      String(row?.transaction_type || '') === 'transfer_out' &&
+      Number(row?.quantity) < 0 &&
+      Number.isFinite(Number(row?.department_id)) &&
+      Number(row.department_id) !== targetDepartmentId
+  );
+  return {
+    targetDepartmentId,
+    sourceDepartmentId: source ? Number(source.department_id) : null
+  };
+};
+
+const findPostedReceivingRoute = async ({ connection, orderItemId, productId }) => {
+  const [rows] = await connection.query(
+    `SELECT department_id, transaction_type, quantity
+     FROM inventory_transactions
+     WHERE reference_type = 'order_receiving' AND reference_id = ? AND product_id = ?
+     ORDER BY id`,
+    [String(orderItemId), productId]
+  );
+  return resolvePostedReceivingRoute(rows);
+};
+
+const getDepartmentLabel = async (connection, departmentId) => {
+  const [rows] = await connection.query(
+    `SELECT d.name AS department_name, b.name AS branch_name
+     FROM departments d
+     LEFT JOIN branches b ON b.id = d.branch_id
+     WHERE d.id = ?`,
+    [departmentId]
+  );
+  return rows[0] || {};
+};
+
 export const updateOrderItemReceivingWithInventory = async ({
   connection,
   orderItemId,
@@ -810,6 +860,7 @@ export const updateOrderItemReceivingWithInventory = async ({
   );
 
   const delta = (Math.round(nextReceived * 100) - Math.round(previousReceived * 100)) / 100;
+
   const isInternalGroup = Number(context?.is_internal_group ?? 0) === 1;
   const productGroupId = Number(context?.product_group_id);
   const explicitSourceDepartment =
@@ -820,6 +871,51 @@ export const updateOrderItemReceivingWithInventory = async ({
       })
       : null;
   const explicitSourceDepartmentId = Number(explicitSourceDepartment?.source_department_id);
+
+  // A4: เคยลงสต็อกแล้ว → แก้/ยกเลิกต้องย้อนที่แผนกเดิม (และต้นทางเดิม) ที่ลงไว้ตอนรับครั้งแรก
+  const isCountableProduct = Number(context?.is_countable ?? 1) === 1;
+  const postedRoute = delta !== 0 && isCountableProduct
+    ? await findPostedReceivingRoute({
+      connection,
+      orderItemId: context.order_item_id,
+      productId: Number(context.product_id)
+    })
+    : null;
+  if (postedRoute) {
+    const routedContext = { ...context, department_id: postedRoute.targetDepartmentId };
+    if (postedRoute.targetDepartmentId !== Number(context.department_id)) {
+      const label = await getDepartmentLabel(connection, postedRoute.targetDepartmentId);
+      routedContext.department_name = label.department_name || '';
+      routedContext.branch_name = label.branch_name || '';
+    }
+    if (postedRoute.sourceDepartmentId) {
+      const sourceDepartmentName = postedRoute.sourceDepartmentId === explicitSourceDepartmentId
+        ? explicitSourceDepartment?.source_department_name || null
+        : (await getDepartmentLabel(connection, postedRoute.sourceDepartmentId)).department_name || null;
+      await createInventoryTransactionsForInternalTransfer({
+        connection,
+        context: routedContext,
+        deltaQuantity: delta,
+        sourceDepartmentId: postedRoute.sourceDepartmentId,
+        sourceDepartmentName,
+        userId,
+        noteOverride: inventoryNotes,
+        onInventoryBalanceChange
+      });
+    } else {
+      await createInventoryTransactionForReceiving({
+        connection,
+        context: routedContext,
+        deltaQuantity: delta,
+        userId,
+        noteOverride: inventoryNotes,
+        onInventoryBalanceChange
+      });
+    }
+    return 1;
+  }
+  // ยังไม่เคยลงสต็อก แต่ลดจำนวน (เช่น รับก่อนเริ่มใช้สต็อก) → ไม่มีอะไรให้ย้อน ไม่สร้างยอดติดลบลอยๆ
+  if (delta < 0) return 1;
 
   // ตัดสินใจโอนด้วย explicit source ของกลุ่มสินค้าโดยตรง (ไม่อิงชื่อกลุ่มว่าเป็นสโตร์)
   if (

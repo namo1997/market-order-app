@@ -220,7 +220,68 @@ test('sales sync coalesces same-date overlapping attempts and returns a schedule
   const first = callbacks[0](), second = callbacks[0]();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(syncs, 1); unblock(); await Promise.all([first, second]);
-  assert.equal(saved, 1); stop(); assert.equal(stopped, 3);
+  assert.equal(saved, 1); stop(); assert.equal(stopped, 4);
+});
+
+test('sales sync success survives a failing status write and stores only a small summary', async () => {
+  const callbacks = [], saved = [];
+  let syncs = 0, failWrite = true;
+  const bigResult = {
+    success: true,
+    data: {
+      start: '2026-11-09', end: '2026-11-09', planned_deductions: 178, applied_deductions: 178, applied_quantity: 12.5,
+      missing_recipes: Array.from({ length: 5000 }, (_, i) => ({ name: `เมนู ${i % 7}`, barcode: String(i), quantity: 1 })),
+      unresolved_items: [{ product_id: 1 }], missing_conversions: [], missing_branch_mapping: []
+    }
+  };
+  const cron = await load('../src/cron/syncJob.js', {
+    'node-cron': { default: { schedule: (_pattern, fn) => { callbacks.push(fn); return { stop() {} }; } } },
+    '../controllers/recipe.controller.js': { syncUsageToInventory: async (_req, res) => { syncs++; res.json(bigResult); } },
+    '../models/settings.model.js': {
+      getSetting: async () => '',
+      setSetting: async (_key, value) => {
+        if (failWrite) { failWrite = false; throw Error("Data too long for column 'setting_value'"); }
+        saved.push(value);
+      }
+    }
+  }, { console: { log() {}, error() {} } });
+  const stop = cron.initSyncJob();
+  await callbacks[0]();
+  assert.equal(syncs, 1);
+  assert.equal(saved.length, 0, 'failed write is swallowed, not turned into a retry');
+  await callbacks[0]();
+  const status = JSON.parse(saved[0]);
+  assert.equal(status.state, 'success');
+  assert.ok(saved[0].length < 2000, `status must stay small (${saved[0].length})`);
+  assert.equal(status.last_result.missing_recipes_count, 5000);
+  assert.equal(status.last_result.applied_deductions, 178);
+  assert.ok(status.last_result.missing_recipe_samples.length <= 5);
+  stop();
+});
+
+test('sales sync catch-up after midnight re-runs the previous day only after a 23:30 primary success', async () => {
+  let clock = '2026-11-09T18:15:00Z';
+  class Clock extends Date { constructor(...args) { super(...(args.length ? args : [clock])); } }
+  const callbacks = [], targets = [];
+  let status = { state: 'success', source: 'primary', target_date: '2026-11-09' };
+  const cron = await load('../src/cron/syncJob.js', {
+    'node-cron': { default: { schedule: (_pattern, fn) => { callbacks.push(fn); return { stop() {} }; } } },
+    '../controllers/recipe.controller.js': { syncUsageToInventory: async (req, res) => { targets.push(req.body.date); res.json({ success: true, data: {} }); } },
+    '../models/settings.model.js': {
+      getSetting: async () => JSON.stringify(status),
+      setSetting: async (_key, value) => { status = JSON.parse(value); }
+    }
+  }, { Date: Clock, console: { log() {}, error() {} } });
+  const stop = cron.initSyncJob();
+  const catchUp = callbacks[3];
+  await catchUp();
+  assert.deepEqual(targets, ['2026-11-09']);
+  assert.equal(status.source, 'catch-up');
+  await catchUp();
+  assert.deepEqual(targets, ['2026-11-09'], 'runs once per day');
+  assert.equal(cron.shouldRunCatchUp({ state: 'pending', source: 'primary', target_date: '2026-11-09' }, '2026-11-09'), false);
+  assert.equal(cron.shouldRunCatchUp({ state: 'success', source: 'primary', target_date: '2026-11-08' }, '2026-11-09'), false);
+  stop();
 });
 
 test('overlapping final sales retry retains failed-window status without replaying the stock operation', async () => {

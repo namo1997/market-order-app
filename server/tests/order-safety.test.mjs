@@ -23,6 +23,7 @@ async function load(path, dependencies, extra = {}) {
   return module.namespace;
 }
 
+const plainRoute = (value) => (value ? { ...value } : value);
 const row = (overrides = {}) => ({
   id: 50, product_id: 7, source_product_group_id: 3, quantity: 5,
   requested_price: 10, notes: '', received_quantity: null, received_at: null,
@@ -59,7 +60,7 @@ async function orderHarness(items = [row()], extra = {}) {
     if (q.startsWith('UPDATE orders SET total_amount')) { state.total = params[0]; return [{ affectedRows: 1 }]; }
     if (q.startsWith('SELECT oi.id FROM order_items')) return [state.items.map(item => ({ id: item.id }))];
     if (q.startsWith('SELECT oi.id AS order_item_id')) return [[{
-      ...state.items.find(item => item.id === params[0]), order_item_id: params[0], department_id: 1,
+      ...state.items.find(item => item.id === params[0]), order_item_id: params[0], department_id: state.orderDepartmentId ?? 1,
       product_group_id: 3, is_internal_group: 0, is_countable: 1, allow_pending_carryover: 0
     }]];
     if (q.startsWith('UPDATE order_items SET received_quantity')) {
@@ -67,6 +68,15 @@ async function orderHarness(items = [row()], extra = {}) {
       return [{ affectedRows: 1 }];
     }
     if (q.startsWith('SELECT quantity FROM inventory_balance')) return [[{ quantity: state.balance }]];
+    if (q.startsWith('SELECT d.name AS department_name, b.name AS branch_name FROM departments d')) {
+      return [[{ department_name: `แผนก#${params[0]}`, branch_name: 'สาขาทดสอบ' }]];
+    }
+    if (q.startsWith('SELECT department_id, transaction_type, quantity FROM inventory_transactions')) {
+      // params ของ INSERT: [product, department, type, quantity, before, after, reference_id, ...]
+      return [state.transactions
+        .filter((tx) => String(tx[6]) === String(params[0]) && Number(tx[0]) === Number(params[1]))
+        .map((tx) => ({ department_id: tx[1], transaction_type: tx[2], quantity: tx[3] }))];
+    }
     if (q.startsWith('INSERT INTO inventory_transactions')) { state.transactions.push(params); return [{ insertId: 101 }]; }
     if (q.startsWith('INSERT INTO inventory_balance')) { state.balance = params[2]; return [{ affectedRows: 1 }]; }
     throw new Error(`Unmocked SQL: ${q}`);
@@ -105,6 +115,44 @@ test('note/price edit keeps receiving and purchasing facts; receiving again does
   assert.equal(h.state.balance, 5);
   assert.equal(h.state.transactions.length, 0);
   assert.ok(h.queries.some(q => q.startsWith('SELECT * FROM order_items') && q.endsWith('FOR UPDATE')));
+});
+
+test('A4: editing or voiding a receipt reverses stock in the department that received it, not the orderer\'s new department', async () => {
+  const h = await orderHarness([row()]);
+  await h.model.updateReceivingItems([{ order_item_id: 50, received_quantity: 5 }], 1, { userId: 1 });
+  assert.deepEqual(h.state.transactions.map((tx) => [tx[1], tx[2], tx[3]]), [[1, 'receive', 5]]);
+  // คนสั่งย้ายไปแผนก 2 หลังรับของ → แก้จำนวนรับ/ยกเลิก ต้องย้อนที่แผนก 1 เดิม
+  h.state.orderDepartmentId = 2;
+  await h.model.updateReceivingItems([{ order_item_id: 50, received_quantity: 2 }], 1, { userId: 1 });
+  await h.model.updateReceivingItems([{ order_item_id: 50, received_quantity: 0 }], 1, { userId: 1 });
+  assert.deepEqual(h.state.transactions.map((tx) => [tx[1], tx[3]]), [[1, 5], [1, -3], [1, -2]]);
+  // รับเพิ่มภายหลังก็เข้าแผนกเดิม
+  await h.model.updateReceivingItems([{ order_item_id: 50, received_quantity: 4 }], 1, { userId: 1 });
+  assert.deepEqual([...h.state.transactions.at(-1).slice(1, 4)], [1, 'receive', 4]);
+  assert.ok(h.state.transactions.every((tx) => tx[1] === 1));
+});
+
+test('A4: lowering a receipt that never reached stock posts nothing (no phantom negative)', async () => {
+  const h = await orderHarness([row({ received_quantity: 5, received_at: '2026-10-02 09:00:00' })]);
+  await h.model.updateReceivingItems([{ order_item_id: 50, received_quantity: 1 }], 1, { userId: 1 });
+  assert.equal(h.state.transactions.length, 0);
+  assert.equal(h.state.items[0].received_quantity, 1);
+});
+
+test('A4: posted route comes from the first posting (receive or transfer pair)', async () => {
+  const h = await orderHarness();
+  const route = h.model.resolvePostedReceivingRoute;
+  assert.equal(route([]), null);
+  assert.deepEqual(plainRoute(route([{ department_id: 4, transaction_type: 'receive', quantity: 5 }])), { targetDepartmentId: 4, sourceDepartmentId: null });
+  const transfer = [
+    { department_id: 9, transaction_type: 'transfer_out', quantity: -5 },
+    { department_id: 4, transaction_type: 'transfer_in', quantity: 5 },
+    // ยกเลิกภายหลัง: ทิศกลับ
+    { department_id: 9, transaction_type: 'transfer_in', quantity: 5 },
+    { department_id: 4, transaction_type: 'transfer_out', quantity: -5 }
+  ];
+  assert.deepEqual(plainRoute(route(transfer)), { targetDepartmentId: 4, sourceDepartmentId: 9 });
+  assert.equal(route([{ department_id: 4, transaction_type: 'adjustment', quantity: -2 }]), null);
 });
 
 test('legacy received rows retain NULL source group on note edit', async () => {
