@@ -42,12 +42,21 @@ const normalizeScanText = (value) => String(value || '')
   .replace(/[^A-Za-z0-9]/g, '')
   .toUpperCase();
 
-// รหัสเดียวกันทั้งบาร์โค้ดและ QR: ตัวเลข 12 หลักจากเลขอ้างอิงการแปรรูป (PRD-<เวลา ms>)
+// รหัสเดียวกันทั้งบาร์โค้ดและ QR, ไม่ซ้ำกันทุกดวง:
+// id รายการรับเข้าจากการแปรรูป 8 หลัก + ลำดับดวง 4 หลัก (ต้องตรงกับ server/src/utils/transform-sticker-code.js)
 // ตัวเลขล้วนจำนวนคู่ → CODE128 ชุด C (2 หลักต่อ 1 ตัว) บาร์โค้ดสั้น แท่งกว้างได้; QR เล็กสุด 21×21
+export const encodeTransformStickerCode = (transactionId, sequence = 1) => {
+  const id = Number(transactionId);
+  const seq = Number(sequence);
+  if (!Number.isInteger(id) || id <= 0 || id > 99_999_999) return null;
+  if (!Number.isInteger(seq) || seq <= 0 || seq > 9_999) return null;
+  return `${String(id).padStart(8, '0')}${String(seq).padStart(4, '0')}`;
+};
+
 export const buildScanId = (label = {}) => {
-  const digits = String(label?.referenceId || '').replace(/\D/g, '');
-  if (digits.length >= 12) return digits.slice(-12);
-  if (digits.length > 0) return digits.length % 2 ? `0${digits}` : digits;
+  const code = encodeTransformStickerCode(label?.transactionId, label?.sequence || 1);
+  if (code) return code;
+  // ไม่มี id รายการ (ไม่ควรเกิด): รหัสสินค้า + วันผลิต ใช้อ่านด้วยตาได้ แต่ค้นในหน้าเบิกไม่ได้
   const productCode = normalizeScanText(label?.productCode || label?.productId || '').slice(0, 8) || 'NA';
   const ymd = (extractYmd(label?.producedAt || label?.createdAt) || '').replace(/-/g, '').slice(2);
   return `${productCode}${ymd}`;
@@ -125,6 +134,7 @@ export const expandStickerLabels = (labels = []) => {
     for (let i = 1; i <= copies; i += 1) {
       expanded.push({
         ...label,
+        sequence: i,
         sequenceText: copies > 1 ? `${i}/${copies}` : ''
       });
     }

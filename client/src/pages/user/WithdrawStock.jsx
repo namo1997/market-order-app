@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -49,6 +49,12 @@ export const WithdrawStock = () => {
   const [editItems, setEditItems] = useState([]);
   const [editNotes, setEditNotes] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  // สแกนสติกเกอร์แปรรูป: 1 ดวง = จำนวนต่อดวง (ปกติ 1 หน่วย) และห้ามสแกนดวงเดิมซ้ำในใบเดียวกัน
+  const [scanCode, setScanCode] = useState('');
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanMessage, setScanMessage] = useState(null);
+  const [scannedStickers, setScannedStickers] = useState([]);
+  const scanInputRef = useRef(null);
 
   const loadHistory = async () => {
     try {
@@ -240,6 +246,7 @@ export const WithdrawStock = () => {
       setDraftItems((prev) =>
         prev.filter((item) => Number(item.product_id) !== productId)
       );
+      setScannedStickers((prev) => prev.filter((entry) => Number(entry.product_id) !== productId));
       return;
     }
 
@@ -302,6 +309,62 @@ export const WithdrawStock = () => {
 
   const removeDraftItem = (productId) => {
     setDraftItems((prev) => prev.filter((item) => Number(item.product_id) !== Number(productId)));
+    setScannedStickers((prev) => prev.filter((entry) => Number(entry.product_id) !== Number(productId)));
+  };
+
+  const addDraftQuantity = (product, delta) => {
+    const productId = Number(product?.id);
+    if (!Number.isFinite(productId) || !(delta > 0)) return;
+    setDraftItems((prev) => {
+      const existing = prev.find((item) => Number(item.product_id) === productId);
+      if (existing) {
+        return prev.map((item) => (Number(item.product_id) === productId
+          ? { ...item, quantity: Number((toNumber(item.quantity, 0) + delta).toFixed(4)) }
+          : item));
+      }
+      return [
+        ...prev,
+        {
+          product_id: productId,
+          product_name: product.name,
+          product_code: product.code,
+          unit_abbr: product.unit_abbr || product.unit_name || '',
+          quantity: delta,
+          notes: ''
+        }
+      ];
+    });
+  };
+
+  const handleScanSubmit = async (event) => {
+    event.preventDefault();
+    const code = String(scanCode || '').replace(/\D/g, '');
+    setScanCode('');
+    if (!code) return;
+    if (scannedStickers.some((entry) => entry.code === code)) {
+      setScanMessage({ tone: 'warn', text: 'ดวงนี้สแกนแล้ว' });
+      return;
+    }
+    try {
+      setScanBusy(true);
+      const response = await withdrawAPI.getSticker(code);
+      const sticker = response?.data;
+      const product = products.find((row) => Number(row.id) === Number(sticker?.product_id));
+      if (!product) {
+        setScanMessage({ tone: 'error', text: `${sticker?.product_name || 'สินค้านี้'} เบิกจากแผนกนี้ไม่ได้` });
+        return;
+      }
+      const quantity = Number(sticker.quantity_per_sticker) > 0 ? Number(sticker.quantity_per_sticker) : 1;
+      addDraftQuantity(product, quantity);
+      setScannedStickers((prev) => [...prev, { code, product_id: Number(product.id) }]);
+      const unit = product.unit_abbr || product.unit_name || '';
+      setScanMessage({ tone: 'ok', text: `+${quantity} ${unit} ${product.name}`.replace(/\s+/g, ' ') });
+    } catch (error) {
+      setScanMessage({ tone: 'error', text: error.response?.data?.message || 'สแกนไม่สำเร็จ' });
+    } finally {
+      setScanBusy(false);
+      scanInputRef.current?.focus();
+    }
   };
 
   const saveWithdrawal = async () => {
@@ -336,6 +399,8 @@ export const WithdrawStock = () => {
       alert(`บันทึกใบเบิกเรียบร้อย: ${withdrawalNo}`);
 
       setDraftItems([]);
+      setScannedStickers([]);
+      setScanMessage(null);
       setDocumentNote('');
       setIsDraftModalOpen(false);
       await loadHistory();
@@ -465,6 +530,35 @@ export const WithdrawStock = () => {
 
             <Card>
               <h2 className="text-lg font-semibold text-gray-900">เพิ่มรายการสินค้า</h2>
+              <form className="mt-3" onSubmit={handleScanSubmit}>
+                <input
+                  ref={scanInputRef}
+                  className="w-full border-2 border-blue-400 rounded-lg px-3 py-3 text-lg tracking-wider focus:border-blue-600 focus:outline-none"
+                  placeholder="สแกนสติกเกอร์"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  autoFocus
+                  value={scanCode}
+                  onChange={(e) => setScanCode(e.target.value)}
+                  readOnly={saving}
+                  aria-busy={scanBusy}
+                  aria-label="สแกนสติกเกอร์"
+                />
+                {scanMessage && (
+                  <p
+                    role="status"
+                    className={`mt-2 text-sm font-semibold ${
+                      scanMessage.tone === 'ok'
+                        ? 'text-emerald-700'
+                        : scanMessage.tone === 'warn'
+                          ? 'text-amber-700'
+                          : 'text-red-700'
+                    }`}
+                  >
+                    {scanMessage.text}
+                  </p>
+                )}
+              </form>
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">ค้นหาสินค้า</label>
                 <input

@@ -10,6 +10,7 @@ router.get('/targets', withdrawController.getWithdrawTargets);
 router.get('/history/:id', withdrawController.getWithdrawById);
 router.put('/history/:id', withdrawController.updateWithdrawal);
 router.get('/products', withdrawController.getWithdrawProducts);
+router.get('/sticker/:code', withdrawController.getTransformSticker);
 router.get('/history', withdrawController.getWithdrawHistory);
 router.post('/', withdrawController.createWithdrawal);
 router.get('/source-mappings', requireAdmin, withdrawController.getWithdrawSourceMappings);

@@ -429,6 +429,7 @@ export const ProductionTransform = () => {
               reference_id: result?.reference_id || '-',
               product_id: result?.output?.product_id || null,
               product_code: result?.output?.product_code || '',
+              transaction_id: result?.output?.transaction_id || null,
               product_name: result?.output?.product_name || '-',
               product_unit: selectedUnitByProductId.get(Number(result?.output?.product_id)) || '',
               quantity: Number(result?.output?.quantity || 0)
@@ -709,6 +710,7 @@ export const ProductionTransform = () => {
                     productId: item.product_id || '',
                     producedAt: summary.transform_date || summary.printed_at,
                     referenceId: item.reference_id,
+                    transactionId: item.transaction_id,
                     branchName: user?.branch || '-',
                     departmentName: user?.department || '-',
                     quantityText: `+${Number(item.quantity || 0)}`,
@@ -788,6 +790,7 @@ export const ProductionTransform = () => {
                               productId: row.product_id || '',
                               producedAt: row.effective_at || row.created_at,
                               referenceId: row.reference_id,
+                              transactionId: row.id,
                               branchName: row.branch_name,
                               departmentName: row.department_name,
                               quantityText: `+${Number(row.quantity || 0)} ${row.unit_abbr || row.unit_name || ''}`.trim(),

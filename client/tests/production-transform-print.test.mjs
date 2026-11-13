@@ -6,6 +6,7 @@ import {
   buildBarcodeSvg,
   buildQrSvg,
   buildScanId,
+  encodeTransformStickerCode,
   buildTransformStickerHtml,
   extractYmd,
   printTransformStickers,
@@ -70,14 +71,31 @@ test('extractYmd uses the Bangkok day, not the UTC day', () => {
   assert.equal(extractYmd('not a date'), null);
 });
 
-test('one 12-digit scan id for barcode and QR, from the transform reference', () => {
-  assert.equal(buildScanId(label), '731450600000');
-  assert.equal(buildScanId({ referenceId: 'PRD-12345' }), '012345');
-  // ไม่มีเลขอ้างอิง: รหัสสินค้า + วันผลิตแบบวันไทย
+test('every sticker gets its own 12-digit code: transform row id + copy number', () => {
+  assert.equal(encodeTransformStickerCode(146290, 2), '001462900002');
+  assert.equal(buildScanId({ ...label, transactionId: 146290, sequence: 1 }), '001462900001');
+  // ไม่มี id รายการ: รหัสสินค้า + วันผลิตแบบวันไทย
   assert.equal(buildScanId({ referenceId: '-', productCode: 'pk-001', producedAt: EARLY_MORNING_UTC }), 'PK001261113');
-  const html = buildTransformStickerHtml([label]);
-  assert.match(html, /class="scan-id"[^>]*>7314 5060 0000</);
+  const html = buildTransformStickerHtml([{ ...label, transactionId: 146290 }]);
+  // 2 ชุด = 2 ดวง รหัสไม่ซ้ำกัน
+  assert.match(html, /class="scan-id"[^>]*>0014 6290 0001</);
+  assert.match(html, /class="scan-id"[^>]*>0014 6290 0002</);
   assert.match(html, /วันที่ผลิต<\/div>\s*<div class="date-value">13\/11\/69</);
+  const page = readFileSync(new URL('../src/pages/production/ProductionTransform.jsx', import.meta.url), 'utf8');
+  assert.match(page, /transactionId: item\.transaction_id/);
+  assert.match(page, /transactionId: row\.id/);
+});
+
+test('withdraw page scans stickers: +quantity per sticker, same sticker only once', () => {
+  const page = readFileSync(new URL('../src/pages/user/WithdrawStock.jsx', import.meta.url), 'utf8');
+  assert.match(page, /placeholder="สแกนสติกเกอร์"/);
+  assert.match(page, /withdrawAPI\.getSticker\(code\)/);
+  assert.match(page, /ดวงนี้สแกนแล้ว/);
+  assert.match(page, /sticker\.quantity_per_sticker/);
+  // บวกจำนวนแบบ functional update กันสแกนรัวแล้วจำนวนหาย
+  assert.match(page, /setDraftItems\(\(prev\) => \{\s*const existing = prev\.find/);
+  const api = readFileSync(new URL('../src/api/withdraw.js', import.meta.url), 'utf8');
+  assert.match(api, /\/withdraw\/sticker\//);
 });
 
 test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {
