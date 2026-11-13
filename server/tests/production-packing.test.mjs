@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   adjustPackedManually,
   buildBranchLines,
+  clearPackingLinesCache,
   getBranchPacking,
   scanStickerForBranch
 } from '../src/models/production-packing.model.js';
@@ -128,4 +129,23 @@ test('no product groups means no orders (never fall back to every group)', async
   assert.deepEqual(scopedGroupIds({ role: 'user', allowed_product_group_ids: [] }), []);
   assert.deepEqual(scopedGroupIds({ role: 'user', allowed_product_group_ids: ['10'] }), [10]);
   assert.deepEqual(scopedGroupIds({ role: 'admin' }), [8]);
+});
+
+test('order lines are cached briefly so taps and scans skip the heavy order query', async () => {
+  clearPackingLinesCache();
+  const db = fakeDb();
+  let calls = 0;
+  const counting = async (...args) => {
+    calls += 1;
+    return getOrderItems(...args);
+  };
+  for (let i = 0; i < 5; i += 1) {
+    await adjustPackedManually({ ...base, db, getOrderItems: counting, branchId: 1, productId: 146, delta: 1 });
+  }
+  await scanStickerForBranch({ ...base, db, getOrderItems: counting, branchId: 1, code: '001462900001', findSticker: sticker('001462900001', 176) });
+  await getBranchPacking({ ...base, db, getOrderItems: counting, branchId: 1 });
+  assert.equal(calls, 1);
+  clearPackingLinesCache();
+  await getBranchPacking({ ...base, db, getOrderItems: counting, branchId: 1 });
+  assert.equal(calls, 2);
 });

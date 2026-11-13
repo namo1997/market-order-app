@@ -87,11 +87,28 @@ export const buildBranchLines = (orderItems = []) => {
   }));
 };
 
-const loadBranchLines = async ({ date, groupIds, getOrderItems }) => {
+// ใบสั่งของวันนั้นดึงด้วย query หนัก (~0.13 วิ ในเครื่อง) — จำไว้สั้น ๆ ไม่ต้องดึงทุกครั้งที่กด/สแกน
+// ใบสั่งที่สาขาแก้ระหว่างจัดของจะเห็นภายใน LINES_CACHE_MS
+export const LINES_CACHE_MS = 15_000;
+const linesCache = new Map(); // getOrderItems → Map(key → { at, promise })
+
+export const clearPackingLinesCache = () => linesCache.clear();
+
+const loadBranchLines = async ({ date, groupIds, getOrderItems, now = Date.now() }) => {
   // ไม่มีกลุ่ม = ไม่มีสิทธิ์เห็นใบสั่งใด ๆ (ห้ามส่ง [] เพราะ getOrderItemsByDate จะคืนทุกกลุ่ม)
   if (!Array.isArray(groupIds) || groupIds.length === 0) return [];
-  const items = await getOrderItems(date, [], groupIds);
-  return buildBranchLines(items);
+  const key = `${date}|${[...groupIds].map(Number).sort((a, b) => a - b).join(',')}`;
+  let byKey = linesCache.get(getOrderItems);
+  if (!byKey) {
+    byKey = new Map();
+    linesCache.set(getOrderItems, byKey);
+  }
+  const cached = byKey.get(key);
+  if (cached && now - cached.at < LINES_CACHE_MS) return cached.promise;
+  const promise = getOrderItems(date, [], groupIds).then(buildBranchLines);
+  byKey.set(key, { at: now, promise });
+  promise.catch(() => byKey.delete(key));
+  return promise;
 };
 
 const loadPacked = async (db, date, branchId = null) => {

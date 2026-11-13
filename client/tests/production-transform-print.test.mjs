@@ -202,6 +202,17 @@ test('camera gate: stickers still in view are not re-sent, two stickers do not p
   assert.doesNotMatch(camera, /results\.forEach\(/);
 });
 
+test('packing taps are instant and batched: no button lock, one request per burst', () => {
+  const page = readFileSync(new URL('../src/pages/production/ProductionPacking.jsx', import.meta.url), 'utf8');
+  assert.match(page, /bumpLine\(line\.product_id, delta\)/);
+  assert.match(page, /setTimeout\(\(\) => flushProduct\(productId\), 350\)/);
+  assert.match(page, /touch-manipulation/);
+  assert.doesNotMatch(page, /disabled=\{busy \|\| line\.packed <= 0\}/);
+  // ก่อนจัดเสร็จ/ออกจากสาขา ต้องส่งที่ค้างให้หมด
+  assert.match(page, /await flushAll\(\);\s*await productionPackingAPI\.setPacked/);
+  assert.match(page, /const backToBranches = async \(\) => \{\s*await flushAll\(\);/);
+});
+
 test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {
   const barcode = buildBarcodeSvg('731450600000', { maxWidthMm: 64, heightMm: 11 });
   assert.equal(barcode.moduleDots, 4);

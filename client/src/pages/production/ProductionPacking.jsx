@@ -62,7 +62,7 @@ const BranchList = ({ branches, onOpen }) => {
   );
 };
 
-const LineRow = ({ line, highlighted, onAdjust, busy, rowRef }) => {
+const LineRow = ({ line, highlighted, onAdjust, rowRef }) => {
   const done = line.ordered > 0 && line.packed >= line.ordered;
   const over = line.packed > line.ordered;
   return (
@@ -86,12 +86,12 @@ const LineRow = ({ line, highlighted, onAdjust, busy, rowRef }) => {
           {fmt(line.packed)} / {fmt(line.ordered)} {line.unit}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1.5">
         <button
           type="button"
           onClick={() => onAdjust(line, -1)}
-          disabled={busy || line.packed <= 0}
-          className="h-10 w-10 rounded-full bg-slate-100 text-xl font-bold text-gray-700 disabled:opacity-30"
+          disabled={line.packed <= 0}
+          className="h-11 w-11 touch-manipulation select-none rounded-full bg-slate-100 text-xl font-bold text-gray-700 transition-transform active:scale-90 active:bg-slate-200 disabled:opacity-30"
           aria-label={`ลด ${line.product_name}`}
         >
           −
@@ -99,8 +99,7 @@ const LineRow = ({ line, highlighted, onAdjust, busy, rowRef }) => {
         <button
           type="button"
           onClick={() => onAdjust(line, 1)}
-          disabled={busy}
-          className="h-10 w-10 rounded-full bg-blue-50 text-xl font-bold text-blue-700 disabled:opacity-30"
+          className="h-11 w-11 touch-manipulation select-none rounded-full bg-blue-50 text-xl font-bold text-blue-700 transition-transform active:scale-90 active:bg-blue-100"
           aria-label={`เพิ่ม ${line.product_name}`}
         >
           +
@@ -127,11 +126,112 @@ export const ProductionPacking = () => {
   const resultSeqRef = useRef(0);
   const pendingRef = useRef(new Set());
   const rowRefs = useRef(new Map());
+  // กด +/− รัว ๆ: เปลี่ยนตัวเลขทันที รวมยอดต่อสินค้าแล้วส่งทีเดียวหลังหยุดแตะ
+  const pendingDeltaRef = useRef(new Map());
+  const flushTimersRef = useRef(new Map());
+  const inFlightRef = useRef(new Set());
+  const refreshTimerRef = useRef(null);
+  const localEntrySeqRef = useRef(0);
+  const ctxRef = useRef({ date, branchId: null });
+  const [scrollTarget, setScrollTarget] = useState(null);
 
   const loadBranch = useCallback(async (targetDate, targetBranchId) => {
     const response = await productionPackingAPI.getBranch(targetDate, targetBranchId);
     setBranch(response?.data || null);
     return response?.data || null;
+  }, []);
+
+  const showResult = (tone, title, detail = '') => {
+    resultSeqRef.current += 1;
+    setScanResult({ id: resultSeqRef.current, tone, title, detail });
+    playScanFeedback(tone);
+  };
+
+  useEffect(() => {
+    ctxRef.current = { date, branchId };
+  });
+
+  const bumpLine = (productId, delta) => setBranch((prev) => (prev ? {
+    ...prev,
+    lines: prev.lines.map((row) => (row.product_id === productId
+      ? { ...row, packed: Math.round((Number(row.packed || 0) + delta) * 1000) / 1000 }
+      : row))
+  } : prev));
+
+  const setLinePacked = (productId, packed) => setBranch((prev) => (prev ? {
+    ...prev,
+    lines: prev.lines.map((row) => (row.product_id === productId ? { ...row, packed } : row))
+  } : prev));
+
+  const hasPendingWork = () => pendingDeltaRef.current.size > 0 || inFlightRef.current.size > 0;
+
+  // โหลดรายการที่จัด (ประวัติ) ตามหลังเมื่อหยุดใช้งานสักครู่ ไม่โหลดทั้งหน้าทุกครั้งที่กด
+  const scheduleRefresh = () => {
+    clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(async () => {
+      if (hasPendingWork()) {
+        scheduleRefresh();
+        return;
+      }
+      const { date: d, branchId: b } = ctxRef.current;
+      if (!b) return;
+      try {
+        const response = await productionPackingAPI.getBranch(d, b);
+        if (!hasPendingWork() && ctxRef.current.branchId === b && ctxRef.current.date === d) {
+          setBranch(response?.data || null);
+        }
+      } catch {
+        // ลองใหม่รอบหน้า
+      }
+    }, 1500);
+  };
+
+  const flushProduct = (productId) => {
+    clearTimeout(flushTimersRef.current.get(productId));
+    flushTimersRef.current.delete(productId);
+    const delta = pendingDeltaRef.current.get(productId) || 0;
+    pendingDeltaRef.current.delete(productId);
+    if (!delta) return Promise.resolve();
+    const { date: d, branchId: b } = ctxRef.current;
+    const task = (async () => {
+      try {
+        const response = await productionPackingAPI.adjust(d, b, productId, delta);
+        const result = response?.data;
+        if (result?.status !== 'ok') {
+          showResult('error', 'แก้จำนวนไม่ได้', result?.line?.product_name || '');
+          const reload = await productionPackingAPI.getBranch(d, b);
+          if (ctxRef.current.branchId === b) setBranch(reload?.data || null);
+        } else if (!pendingDeltaRef.current.has(productId) && inFlightRef.current.size === 1) {
+          setLinePacked(productId, result.line.packed);
+        }
+      } catch (error) {
+        showResult('error', error?.response?.data?.message || 'บันทึกไม่สำเร็จ', 'ลองกดใหม่');
+        try {
+          const reload = await productionPackingAPI.getBranch(d, b);
+          if (ctxRef.current.branchId === b) setBranch(reload?.data || null);
+        } catch {
+          // ignore
+        }
+      }
+    })();
+    inFlightRef.current.add(task);
+    task.finally(() => {
+      inFlightRef.current.delete(task);
+      scheduleRefresh();
+    });
+    return task;
+  };
+
+  const flushAll = async () => {
+    const productIds = [...pendingDeltaRef.current.keys()];
+    await Promise.allSettled([...productIds.map((id) => flushProduct(id)), ...inFlightRef.current]);
+  };
+
+  // ออกจากหน้า: ส่งที่ค้างให้หมด
+  useEffect(() => () => {
+    clearTimeout(refreshTimerRef.current);
+    for (const id of [...pendingDeltaRef.current.keys()]) flushProduct(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const [overviewReload, setOverviewReload] = useState(0);
@@ -169,17 +269,13 @@ export const ProductionPacking = () => {
     };
   }, [date, branchId]);
 
-  const backToBranches = () => {
+  const backToBranches = async () => {
+    await flushAll();
+    clearTimeout(refreshTimerRef.current);
     setBranchId(null);
     setBranch(null);
     setScanResult(null);
     setOverviewReload((value) => value + 1);
-  };
-
-  const showResult = (tone, title, detail = '') => {
-    resultSeqRef.current += 1;
-    setScanResult({ id: resultSeqRef.current, tone, title, detail });
-    playScanFeedback(tone);
   };
 
   const handleScan = async (rawCode) => {
@@ -200,12 +296,29 @@ export const ProductionPacking = () => {
             name,
             `${fmt(result.line.packed)} / ${fmt(result.line.ordered)} ${unit}${complete ? ' · ครบ' : ''}`
           );
+          bumpLine(result.line.product_id, Number(result.quantity) || 0);
+          localEntrySeqRef.current += 1;
+          setBranch((prev) => (prev ? {
+            ...prev,
+            entries: [{
+              id: `local-${localEntrySeqRef.current}`,
+              product_id: result.line.product_id,
+              product_name: result.line.product_name,
+              unit: result.line.unit,
+              quantity: Number(result.quantity) || 0,
+              source: 'scan',
+              sticker_code: result.sticker?.code || code,
+              created_at: new Date().toISOString()
+            }, ...(prev.entries || [])]
+          } : prev));
           setLastProductId(result.line.product_id);
+          setScrollTarget({ productId: result.line.product_id, seq: resultSeqRef.current });
           break;
         }
         case 'over':
           showResult('warn', 'เกินที่สั่ง', `${name} สั่ง ${fmt(result.line?.ordered)} ${unit}`);
           setLastProductId(result.line?.product_id ?? null);
+          if (result.line?.product_id) setScrollTarget({ productId: result.line.product_id, seq: resultSeqRef.current });
           break;
         case 'duplicate':
           showResult('warn', 'สแกนดวงนี้แล้ว', result.packed_to ? `อยู่ใน${result.packed_to}` : name);
@@ -219,7 +332,7 @@ export const ProductionPacking = () => {
         default:
           showResult('error', 'ไม่ใช่สติกเกอร์แปรรูป', formatCode(code));
       }
-      await loadBranch(date, branchId);
+      scheduleRefresh();
     } catch (error) {
       showResult('error', error?.response?.data?.message || 'สแกนไม่สำเร็จ', formatCode(code));
     } finally {
@@ -239,30 +352,27 @@ export const ProductionPacking = () => {
   });
 
   // เลื่อนไปบรรทัดที่เพิ่งสแกน ให้เห็นว่าบวกตรงไหน
+  // (เลื่อนเฉพาะตอนสแกน ไม่เลื่อนตอนกด +/− เพราะนิ้วอยู่ที่บรรทัดนั้นแล้ว)
   useEffect(() => {
-    if (!lastProductId) return;
-    rowRefs.current.get(lastProductId)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [lastProductId, scanResult?.id]);
+    if (!scrollTarget) return;
+    rowRefs.current.get(scrollTarget.productId)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [scrollTarget]);
 
-  const handleAdjust = async (line, delta) => {
-    try {
-      setBusy(true);
-      const response = await productionPackingAPI.adjust(date, branchId, line.product_id, delta);
-      if (response?.data?.status !== 'ok') {
-        showResult('error', 'แก้จำนวนไม่ได้', line.product_name);
-      }
-      setLastProductId(line.product_id);
-      await loadBranch(date, branchId);
-    } catch (error) {
-      alert(error?.response?.data?.message || 'แก้จำนวนไม่สำเร็จ');
-    } finally {
-      setBusy(false);
-    }
+  const handleAdjust = (line, delta) => {
+    if (Number(line.packed || 0) + delta < 0) return;
+    bumpLine(line.product_id, delta);
+    setLastProductId(line.product_id);
+    const productId = line.product_id;
+    pendingDeltaRef.current.set(productId, (pendingDeltaRef.current.get(productId) || 0) + delta);
+    clearTimeout(flushTimersRef.current.get(productId));
+    flushTimersRef.current.set(productId, setTimeout(() => flushProduct(productId), 350));
   };
 
   const handleRemoveEntry = async (entry) => {
+    if (String(entry.id).startsWith('local-')) return;
     try {
       setBusy(true);
+      await flushAll();
       await productionPackingAPI.removeEntry(date, branchId, entry.id);
       await loadBranch(date, branchId);
     } catch (error) {
@@ -279,9 +389,10 @@ export const ProductionPacking = () => {
     }
     try {
       setBusy(true);
+      await flushAll();
       await productionPackingAPI.setPacked(date, branchId, packed);
       if (packed) {
-        backToBranches();
+        await backToBranches();
       } else {
         await loadBranch(date, branchId);
       }
@@ -346,8 +457,9 @@ export const ProductionPacking = () => {
     );
   }
 
-  const lineCount = branch?.line_count || 0;
-  const completeLines = branch?.complete_lines || 0;
+  const countedLines = (branch?.lines || []).filter((line) => line.ordered > 0);
+  const lineCount = countedLines.length;
+  const completeLines = countedLines.filter((line) => line.packed >= line.ordered).length;
   const entries = branch?.entries || [];
 
   return (
@@ -415,7 +527,6 @@ export const ProductionPacking = () => {
             <LineRow
               key={line.product_id}
               line={line}
-              busy={busy}
               highlighted={line.product_id === lastProductId}
               onAdjust={handleAdjust}
               rowRef={(node) => {
