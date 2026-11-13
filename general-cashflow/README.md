@@ -86,12 +86,15 @@ static files plus its API from a single process).
    - Source: this repo.
    - Root directory: `general-cashflow` (so Railway's build context is this folder and it picks
      up `general-cashflow/Dockerfile` automatically — no Nixpacks/Procfile needed).
-2. **Add a MySQL database** to the Railway project (its own plugin/instance — do not reuse the
-   market-order app's database) and note its connection details.
+2. **Give Cashflow its own MySQL schema and user.** Since 2026-11-13 Production shares the
+   market-order MySQL server (Railway service `MySQL`, `mysql.railway.internal`) to save memory
+   cost, but keeps a separate schema `general_cashflow_db` and a dedicated user `cashflow_app`
+   that can only reach that schema. Never point Cashflow at the market-order schema (`railway`)
+   and never run it as `root`.
 3. **Set these environment variables** on the new service (values come from your local
    `general-cashflow/server/.env` — do not commit real secrets to git):
    - `CASHFLOW_DB_HOST`, `CASHFLOW_DB_PORT`, `CASHFLOW_DB_USER`, `CASHFLOW_DB_PASSWORD`,
-     `CASHFLOW_DB_NAME` — point at the MySQL added in step 2.
+     `CASHFLOW_DB_NAME` — point at the schema and user from step 2.
    - `CASHFLOW_JWT_SECRET` — production startup requires a non-default secret of at least 32 characters.
    - `CASHFLOW_ADMIN_PIN` — six-digit Admin keypad PIN. Keep it server-side only.
    - `CASHFLOW_ADMIN_PASSWORD`, `CASHFLOW_ADMIN_USERNAME` — bootstrap identity values; browser

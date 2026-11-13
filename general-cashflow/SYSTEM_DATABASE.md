@@ -9,6 +9,13 @@
 - Frontend: React/Vite
 - Backend: Node.js/Express
 - Database หลัก: MySQL ชื่อ `general_cashflow_db`
+- ที่ตั้ง Production (ตั้งแต่ 13 พ.ย. 2026): อยู่ในเครื่อง MySQL เดียวกับระบบสั่งของ (Railway service `MySQL`, `mysql.railway.internal`) เพื่อลดค่าหน่วยความจำ แต่แยก schema และใช้ผู้ใช้ `cashflow_app` ที่เข้าได้เฉพาะ `general_cashflow_db` ห้ามใช้ `root` และห้ามแตะ schema `railway` ของระบบสั่งของ
+- เครื่องเดิม `MySQL-rluT` (`mysql-rlut.railway.internal`) หยุดใช้งานแล้ว ดิสก์ `mysql-volume-9LxF` เก็บไว้เป็นทางถอยจนกว่าเจ้าของอนุมัติลบ
+- ในเครื่องหลักมี schema `general_cashflow_db_stale_20261004` เป็นสำเนาเก่าวันที่ 4 ต.ค. 2026 ที่ไม่มีระบบใดใช้ เก็บไว้จนกว่าเจ้าของอนุมัติลบ
+- ในเครื่องหลักมี schema `general_cashflow_db_tainted_20261113` เป็นสำเนาที่โค้ดเก่า (commit `a3266e27`) รันทับ 3 นาทีระหว่างย้ายเมื่อ 13 พ.ย. 2026 ไม่มีระบบใดใช้ เก็บไว้จนกว่าเจ้าของอนุมัติลบ
+- **กับดัก Railway:** service `general-cashflow` ผูกกับ GitHub branch `codex/สำหรับรวมระบบ` การแก้ตัวแปรแบบปกติจะสั่ง build จาก branch นั้น (โค้ดเก่า) ไม่ใช่เวอร์ชันที่ปล่อยด้วย `railway up` ต้องแก้ตัวแปรด้วย `--skip-deploys` แล้วสั่ง redeploy deployment ของ Production โดยตรง (`deploymentRedeploy`) และตรวจ `imageDigest` กับ `/health` ว่า commit ตรง
+- ชุดสำรองก่อนย้าย (ตรวจกู้คืนแล้ว): `/Volumes/SSD Files/SOLAO/market-order-system/backups/mysql-merge-20261113/` ดู `manifest.json`
+- ไฟล์แนบเก็บเป็น BLOB ในตาราง `attachments` (ราว 3.2 GB ณ 13 พ.ย. 2026 โตประมาณ 0.75 GB ต่อเดือน) ดิสก์ `mysql-volume` ขยายเป็น 20 GB แล้ว
 - POS source: ClickHouse database `dedebi`
 - Production URL: `https://general-cashflow-production.up.railway.app/`
 - หน้าแคชเชียร์: `https://general-cashflow-production.up.railway.app/?cashier=1`
