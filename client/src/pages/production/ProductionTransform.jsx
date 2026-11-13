@@ -8,7 +8,7 @@ import { inventoryAPI } from '../../api/inventory';
 import { useAuth } from '../../contexts/AuthContext';
 import { usageUnitOf, inputUnitLabel, toBaseQuantity, formatNumber } from '../../utils/usage-unit';
 import { ProductionUsageUnitTab } from './ProductionUsageUnitTab';
-import { printTransformStickers } from './transformStickerPrint';
+import { printTransformStickers, TRANSFORM_STICKER_LAYOUT } from './transformStickerPrint';
 import { bangkokDate } from '../../utils/salesReportDates';
 
 const isBaseIngredientRequired = (product) => {
@@ -714,11 +714,11 @@ export const ProductionTransform = () => {
                     quantityText: `+${Number(item.quantity || 0)}`,
                     quantityValue: Number(item.quantity || 0)
                   })),
-                  { layout: '3x2' }
+                  { layout: TRANSFORM_STICKER_LAYOUT }
                 )
               }
             >
-              พิมพ์สติกเกอร์ 3x2 นิ้ว
+              พิมพ์สติกเกอร์
             </button>
           </div>
         </div>
@@ -792,11 +792,11 @@ export const ProductionTransform = () => {
                               departmentName: row.department_name,
                               quantityText: `+${Number(row.quantity || 0)} ${row.unit_abbr || row.unit_name || ''}`.trim(),
                               quantityValue: Number(row.quantity || 0)
-                            }], { layout: '3x2' })
+                            }], { layout: TRANSFORM_STICKER_LAYOUT })
                           }
                           className="ml-2 mt-1 text-xs text-emerald-700 hover:text-emerald-800"
                         >
-                          พิมพ์ 3x2 นิ้ว
+                          พิมพ์สติกเกอร์
                         </button>
                       </div>
                     </div>

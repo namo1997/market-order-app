@@ -157,15 +157,40 @@ const STICKER_LAYOUTS = {
     dateQrSize: '11.5mm',
     lotFont: '7.5px',
     bottomRowGap: '1.2mm'
+  },
+  // สติกเกอร์จริงของครัวกลาง (พ.ย. 2569): กว้าง 72 มม. สูง 50 มม. ออกจากเครื่องด้านกว้าง
+  '72x50': {
+    pageWidth: '72mm',
+    pageHeight: '50mm',
+    padding: '2.2mm',
+    gap: '0.9mm',
+    productFont: '14px',
+    productMinHeight: '9.5mm',
+    productMaxHeight: '10.5mm',
+    productLineClamp: 2,
+    barcodeHeight: '7mm',
+    dateLabelFont: '8.5px',
+    dateValueFont: '14px',
+    datePadding: '1.2mm',
+    footerFont: '10px',
+    footerMinHeight: '4mm',
+    codeTextFont: '6.5px',
+    dateQrSize: '10.5mm',
+    lotFont: '7.5px',
+    bottomRowGap: '1.2mm'
   }
 };
 
+// ขนาดที่ปุ่มพิมพ์ในหน้าแปรรูปใช้
+export const TRANSFORM_STICKER_LAYOUT = '72x50';
+export const TRANSFORM_STICKER_LAYOUTS = Object.keys(STICKER_LAYOUTS);
+
 export const buildTransformStickerHtml = (labels = [], options = {}) => {
-  const layoutKey = options?.layout === '80x80' ? '80x80' : '3x2';
+  const layoutKey = STICKER_LAYOUTS[options?.layout] ? options.layout : TRANSFORM_STICKER_LAYOUT;
   const layout = STICKER_LAYOUTS[layoutKey];
   const pageWidth = layout.pageWidth;
   const pageHeight = layout.pageHeight;
-  const pageOrientation = layoutKey === '3x2' ? 'landscape' : 'portrait';
+  const pageOrientation = layoutKey === '80x80' ? 'portrait' : 'landscape';
   const contentScale = 0.98;
   const useLandscapeFallback = Boolean(options?.landscapeFallback);
   const expandedLabels = expandStickerLabels(labels);
@@ -303,7 +328,7 @@ export const buildTransformStickerHtml = (labels = [], options = {}) => {
     .date-block {
       border-top: 1px solid #000;
       border-bottom: 1px solid #000;
-      padding: 2mm 0;
+      padding: ${layout.datePadding || '2mm'} 0;
       display: grid;
       grid-template-columns: 1fr auto;
       align-items: center;

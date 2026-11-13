@@ -10,7 +10,9 @@
 - PRD-04: ไม่ปิดหน้าต่างพิมพ์ทันทีหลัง `print()`; คอมปิดเองหลัง `afterprint`, มือถือ/แท็บเล็ตมีปุ่ม "พิมพ์" / "ปิด" (ซ่อนตอนพิมพ์)
 - ย้ายโค้ดสร้าง/พิมพ์สติกเกอร์ไป `client/src/pages/production/transformStickerPrint.js` (เนื้อเดิม) เพื่อทดสอบได้; เทสต์ใหม่ `client/tests/production-transform-print.test.mjs`
 - ตรวจหน้าตาสติกเกอร์ 3x2 ในเบราว์เซอร์จากสำเนาบน SSD (ปิด server แล้ว); เทสต์ fastcheck `transform-print` (logs: `/Volumes/SSD Files/SOLAO/market-order-system/reports/fastcheck/transform-print/`)
-- ยังค้าง: ยังไม่ได้ลองพิมพ์จริงกับเครื่องพิมพ์สติกเกอร์/มือถือ; PRD-05, PRD-06 ใน `docs/modules/inventory.md`
+- PRD-07: ปุ่มพิมพ์ทั้งสองจุดเปลี่ยนจาก 3x2 นิ้ว (76.2×50.8 มม.) เป็นขนาดสติกเกอร์จริง 72×50 มม. แนวนอน (เจ้าของแจ้งว่าออกจากเครื่องด้านกว้าง) ป้ายปุ่มเหลือ "พิมพ์สติกเกอร์"; วัดในเบราว์เซอร์แล้ว ชื่อยาว 2 บรรทัดไม่ล้น บรรทัดล็อตเหลือขอบ 0.9 มม.
+- พิมพ์ทดสอบจริง 1 ดวงจาก Mac เข้า `LABEL__9X00` (USB) ด้วย PDF จากโค้ดนี้ ขนาด 72×50 มม. + `PageSize=Custom.72x50mm` (ไดรเวอร์ค่าเริ่มต้นเป็น 100×150 มม. ซึ่งไม่ตรงสติกเกอร์); PDF/ภาพ: `/Volumes/SSD Files/SOLAO/market-order-system/reports/transform-print-20261113/`
+- ยังค้าง: ยังไม่ได้ลองผ่านหน้าเว็บจริง/มือถือ; ตอนพิมพ์จากเบราว์เซอร์ต้องเลือกกระดาษ 72×50 มม., ขอบไม่มี, มาตราส่วน 100%; PRD-05, PRD-06 ใน `docs/modules/inventory.md`
 
 ## 2026-11-10 — หน้ายอดขาย (/sales-dashboard) ยอดรายวันไม่ตรงแอป POS — สถานะ: **Local (branch `market/sales-dashboard-tz-20261110`) ยังไม่ deploy**
 

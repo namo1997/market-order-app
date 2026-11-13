@@ -7,7 +7,8 @@ import {
   buildTransformStickerHtml,
   extractYmd,
   printTransformStickers,
-  shouldAutoClosePrintWindow
+  shouldAutoClosePrintWindow,
+  TRANSFORM_STICKER_LAYOUT
 } from '../src/pages/production/transformStickerPrint.js';
 
 // 06:30 น. วันที่ 13 พ.ย. 2569 เวลาไทย = 23:30 UTC ของวันที่ 12
@@ -84,6 +85,19 @@ test('sticker page has a screen-only print/close bar', () => {
   assert.match(html, /@media print \{ \.print-toolbar \{ display: none !important; \} \}/);
   // 2 ชุด = 2 ดวง
   assert.equal((html.match(/<section class="sticker/g) || []).length, 2);
+});
+
+test('transform page prints on the real 72x50 mm label (landscape)', () => {
+  assert.equal(TRANSFORM_STICKER_LAYOUT, '72x50');
+  const html = buildTransformStickerHtml([label]);
+  assert.match(html, /size: 72mm 50mm !important;/);
+  assert.match(html, /width: 72mm !important;/);
+  assert.match(html, /height: 50mm !important;/);
+  assert.match(buildTransformStickerHtml([label], { layout: '3x2' }), /size: 3in 2in !important;/);
+  assert.match(buildTransformStickerHtml([label], { layout: 'unknown' }), /size: 72mm 50mm !important;/);
+  const page = readFileSync(new URL('../src/pages/production/ProductionTransform.jsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(page, /layout: '3x2'/);
+  assert.equal((page.match(/layout: TRANSFORM_STICKER_LAYOUT/g) || []).length, 2);
 });
 
 test('auto-close only on desktop', () => {
