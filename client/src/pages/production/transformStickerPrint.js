@@ -1,4 +1,4 @@
-// พิมพ์สติกเกอร์แปรรูป (3x2 นิ้ว / 80x80 มม.) — แยกจาก ProductionTransform.jsx เพื่อทดสอบได้
+// พิมพ์สติกเกอร์แปรรูป (72×50 มม.; ออกแบบให้สแกนง่ายที่ 203 dpi) — แยกจาก ProductionTransform.jsx เพื่อทดสอบได้
 import JsBarcode from 'jsbarcode';
 import QRCodeGenerator from 'qrcode-generator';
 import { bangkokDate } from '../../utils/salesReportDates.js';
@@ -31,69 +31,82 @@ export const extractYmd = (value) => {
   return bangkokDate(date);
 };
 
-export const buildLotNo = (referenceId, producedAt) => {
-  const ymd = (extractYmd(producedAt) || '').replace(/-/g, '') || '00000000';
-  const cleanedRef = String(referenceId || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  const refSuffix = cleanedRef ? cleanedRef.slice(-6) : String(Date.now()).slice(-6);
-  return `LOT${ymd}-${refSuffix}`;
-};
+// ===== รหัสสแกน =====
+// เครื่องพิมพ์ฉลาก 203 dpi = 8 จุดต่อ มม. ขนาดแท่ง/ช่อง QR ต้องเป็นจำนวนจุดเต็ม ไม่งั้นแท่งหนาบางไม่เท่ากันและสแกนยาก
+export const PRINTER_DOTS_PER_MM = 8;
+const BARCODE_QUIET_MODULES = 10;
 
 const normalizeScanText = (value) => String(value || '')
   .trim()
   .replace(/\s+/g, '')
-  .replace(/[^A-Za-z0-9_-]/g, '')
+  .replace(/[^A-Za-z0-9]/g, '')
   .toUpperCase();
 
-export const buildTracePayload = (label, lotNo) => {
-  const producedYmd = extractYmd(label?.producedAt || label?.createdAt || new Date().toISOString()) || '0000-00-00';
-  const producedCompact = producedYmd.replace(/-/g, '');
-  const producedShort = producedCompact.slice(-6);
-  const productCode = normalizeScanText(label?.productCode || label?.productId || 'UNKNOWN').slice(0, 8) || 'UNKNOWN';
-  const referenceId = normalizeScanText(label?.referenceId || '').slice(-6);
-  const lotSuffix = normalizeScanText(lotNo).slice(-6) || referenceId || '000000';
-  const lotShort = `${producedShort}-${lotSuffix}`;
+// รหัสเดียวกันทั้งบาร์โค้ดและ QR: ตัวเลข 12 หลักจากเลขอ้างอิงการแปรรูป (PRD-<เวลา ms>)
+// ตัวเลขล้วนจำนวนคู่ → CODE128 ชุด C (2 หลักต่อ 1 ตัว) บาร์โค้ดสั้น แท่งกว้างได้; QR เล็กสุด 21×21
+export const buildScanId = (label = {}) => {
+  const digits = String(label?.referenceId || '').replace(/\D/g, '');
+  if (digits.length >= 12) return digits.slice(-12);
+  if (digits.length > 0) return digits.length % 2 ? `0${digits}` : digits;
+  const productCode = normalizeScanText(label?.productCode || label?.productId || '').slice(0, 8) || 'NA';
+  const ymd = (extractYmd(label?.producedAt || label?.createdAt) || '').replace(/-/g, '').slice(2);
+  return `${productCode}${ymd}`;
+};
 
-  // ลดความยาวบาร์โค้ดให้สแกนง่ายบนสติกเกอร์ 80x80
-  // รูปแบบ: {PRODUCT_CODE}-{YYMMDD}-{LOT_SUFFIX}
-  const barcodeValue = `${productCode}-${producedShort}-${lotSuffix}`;
+export const formatScanId = (scanId) => (/^\d+$/.test(scanId)
+  ? String(scanId).replace(/(\d{4})(?=\d)/g, '$1 ')
+  : String(scanId));
 
-  // QR เก็บข้อมูลครบ แต่ใช้รูปแบบสั้นเพื่อลดความหนาแน่น
-  const qrPayload = `SOLAO|T|PC:${productCode}|D:${producedYmd}|LOT:${lotShort}|R:${referenceId || 'NA'}`;
+const dotsToMm = (dots) => Number((dots / PRINTER_DOTS_PER_MM).toFixed(3));
 
+// วาด SVG เองจากรูปแบบแท่งของ JsBarcode (ไม่ต้องมี document) ความกว้างเป็น มม. ตามจำนวนจุดเต็ม
+export const buildBarcodeSvg = (value, { maxWidthMm, heightMm, maxModuleDots = 4 } = {}) => {
+  const target = {};
+  JsBarcode(target, String(value), { format: 'CODE128' });
+  const bits = target.encodings.map((encoding) => encoding.data).join('');
+  const totalModules = bits.length + BARCODE_QUIET_MODULES * 2;
+  const fitDots = Math.floor((maxWidthMm * PRINTER_DOTS_PER_MM) / totalModules);
+  const moduleDots = Math.max(1, Math.min(maxModuleDots, fitDots));
+  let rects = '';
+  let index = 0;
+  while (index < bits.length) {
+    if (bits[index] === '1') {
+      let end = index;
+      while (end < bits.length && bits[end] === '1') end += 1;
+      rects += `<rect x="${index + BARCODE_QUIET_MODULES}" y="0" width="${end - index}" height="1"/>`;
+      index = end;
+    } else {
+      index += 1;
+    }
+  }
+  const widthMm = dotsToMm(totalModules * moduleDots);
   return {
-    barcodeValue,
-    qrValue: qrPayload
+    moduleDots,
+    widthMm,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalModules} 1" preserveAspectRatio="none" style="width:${widthMm}mm;height:${heightMm}mm" shape-rendering="crispEdges"><rect x="0" y="0" width="${totalModules}" height="1" fill="#fff"/><g fill="#000">${rects}</g></svg>`
   };
 };
 
-const buildBarcodeSvg = (value) => {
-  try {
-    const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    JsBarcode(svgNode, String(value || '').trim() || 'SOLAO|UNKNOWN', {
-      format: 'CODE128',
-      displayValue: false,
-      margin: 10,
-      width: 2,
-      height: 56,
-      background: '#ffffff'
-    });
-    return svgNode.outerHTML;
-  } catch (error) {
-    console.error('Failed to build barcode svg', error);
-    return '<svg viewBox="0 0 120 30" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="120" height="30" fill="#fff" stroke="#000"/></svg>';
+export const buildQrSvg = (value, { maxSizeMm } = {}) => {
+  const text = String(value);
+  const qr = QRCodeGenerator(0, 'M');
+  qr.addData(text, /^\d+$/.test(text) ? 'Numeric' : 'Byte');
+  qr.make();
+  const count = qr.getModuleCount();
+  const moduleDots = Math.max(1, Math.floor((maxSizeMm * PRINTER_DOTS_PER_MM) / count));
+  let rects = '';
+  for (let row = 0; row < count; row += 1) {
+    for (let col = 0; col < count; col += 1) {
+      if (qr.isDark(row, col)) rects += `<rect x="${col}" y="${row}" width="1" height="1"/>`;
+    }
   }
-};
-
-const buildQrSvg = (value) => {
-  try {
-    const qr = QRCodeGenerator(0, 'L');
-    qr.addData(String(value || ''));
-    qr.make();
-    return qr.createSvgTag(2, 2);
-  } catch (error) {
-    console.error('Failed to build qr svg', error);
-    return '<svg viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="42" height="42" fill="#fff" stroke="#000"/></svg>';
-  }
+  const sizeMm = dotsToMm(count * moduleDots);
+  return {
+    moduleCount: count,
+    moduleDots,
+    sizeMm,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${count} ${count}" style="width:${sizeMm}mm;height:${sizeMm}mm" shape-rendering="crispEdges"><rect x="0" y="0" width="${count}" height="${count}" fill="#fff"/><g fill="#000">${rects}</g></svg>`
+  };
 };
 
 export const getStickerCopies = (quantityValue) => {
@@ -119,126 +132,54 @@ export const expandStickerLabels = (labels = []) => {
   return expanded;
 };
 
+// หน้ากระดาษต่อขนาดสติกเกอร์; เนื้อหาเป็น มม. คงที่ เพื่อให้แท่งบาร์โค้ด/QR ตรงจุดเครื่องพิมพ์
+// 72x50 = สติกเกอร์จริงของครัวกลาง (พ.ย. 2569) ออกจากเครื่องด้านกว้าง
+// ขอบข้าง 4 มม.: พิมพ์จริงกับ LABEL 9X00 ภาพเลื่อนข้างหนึ่ง ~2 มม.
 const STICKER_LAYOUTS = {
-  '80x80': {
-    pageWidth: '80mm',
-    pageHeight: '80mm',
-    padding: '3.5mm',
-    gap: '1.6mm',
-    productFont: '23px',
-    productMinHeight: '24mm',
-    productMaxHeight: '30mm',
-    productLineClamp: 3,
-    barcodeHeight: '12.5mm',
-    dateLabelFont: '11px',
-    dateValueFont: '21px',
-    footerFont: '13px',
-    footerMinHeight: '6mm',
-    codeTextFont: '8px',
-    dateQrSize: '16mm',
-    lotFont: '9px',
-    bottomRowGap: '2mm'
-  },
-  '3x2': {
-    pageWidth: '3in',
-    pageHeight: '2in',
-    padding: '2.4mm',
-    gap: '1.1mm',
-    productFont: '15px',
-    productMinHeight: '11mm',
-    productMaxHeight: '14mm',
-    productLineClamp: 2,
-    barcodeHeight: '7.5mm',
-    dateLabelFont: '9px',
-    dateValueFont: '14px',
-    footerFont: '10px',
-    footerMinHeight: '4.5mm',
-    codeTextFont: '6.5px',
-    dateQrSize: '11.5mm',
-    lotFont: '7.5px',
-    bottomRowGap: '1.2mm'
-  },
-  // สติกเกอร์จริงของครัวกลาง (พ.ย. 2569): กว้าง 72 มม. สูง 50 มม. ออกจากเครื่องด้านกว้าง
-  '72x50': {
-    pageWidth: '72mm',
-    pageHeight: '50mm',
-    // ขอบข้าง 4 มม.: พิมพ์จริงกับ LABEL 9X00 แล้วภาพเลื่อนข้างหนึ่ง ~2 มม. (ขอบ 2.2 มม. ตัวหนังสือโดนตัด)
-    padding: '2.2mm 4mm',
-    gap: '0.9mm',
-    productFont: '14px',
-    productMinHeight: '9.5mm',
-    productMaxHeight: '10.5mm',
-    productLineClamp: 2,
-    barcodeHeight: '7mm',
-    dateLabelFont: '8.5px',
-    dateValueFont: '14px',
-    datePadding: '1.2mm',
-    footerFont: '10px',
-    footerMinHeight: '4mm',
-    codeTextFont: '6.5px',
-    dateQrSize: '10.5mm',
-    lotFont: '7.5px',
-    bottomRowGap: '1.2mm'
-  }
+  '72x50': { pageWidthMm: 72, pageHeightMm: 50, padYMm: 2, padXMm: 4 },
+  '3x2': { pageWidthMm: 76.2, pageHeightMm: 50.8, padYMm: 2.4, padXMm: 4 }
 };
 
 // ขนาดที่ปุ่มพิมพ์ในหน้าแปรรูปใช้
 export const TRANSFORM_STICKER_LAYOUT = '72x50';
 export const TRANSFORM_STICKER_LAYOUTS = Object.keys(STICKER_LAYOUTS);
 
+const BARCODE_HEIGHT_MM = 11;
+const QR_MAX_MM = 18.5;
+
 export const buildTransformStickerHtml = (labels = [], options = {}) => {
   const layoutKey = STICKER_LAYOUTS[options?.layout] ? options.layout : TRANSFORM_STICKER_LAYOUT;
   const layout = STICKER_LAYOUTS[layoutKey];
-  const pageWidth = layout.pageWidth;
-  const pageHeight = layout.pageHeight;
-  const pageOrientation = layoutKey === '80x80' ? 'portrait' : 'landscape';
-  const contentScale = 0.98;
-  const useLandscapeFallback = Boolean(options?.landscapeFallback);
+  const pageWidth = `${layout.pageWidthMm}mm`;
+  const pageHeight = `${layout.pageHeightMm}mm`;
+  const contentWidthMm = layout.pageWidthMm - layout.padXMm * 2;
   const expandedLabels = expandStickerLabels(labels);
   const pages = expandedLabels
     .map((label, index) => {
-      const lotNo = buildLotNo(label?.referenceId, label?.producedAt);
       const producedDate = formatThaiDate(label?.producedAt || label?.createdAt || new Date().toISOString());
       const productUnit = String(label?.productUnit || '').trim();
-      const productLine = productUnit
-        ? `${String(label?.productName || '-').trim()} (${productUnit})`
-        : String(label?.productName || '-').trim();
-      const { barcodeValue, qrValue } = buildTracePayload(label, lotNo);
-      const barcodeSvg = buildBarcodeSvg(barcodeValue);
-      const qrSvg = buildQrSvg(qrValue);
-      const quantityText = label?.quantityText
-        ? `<span>${escapeHtml(label.quantityText)}</span>`
-        : '';
-      const sequenceText = label?.sequenceText
-        ? `<span>${escapeHtml(label.sequenceText)}</span>`
-        : '';
-      const footerParts = [quantityText, sequenceText].filter(Boolean).join('<span class="sep">•</span>');
+      const productName = String(label?.productName || '-').trim();
+      const productLine = productUnit ? `${productName} (${productUnit})` : productName;
+      const scanId = buildScanId(label);
+      const barcode = buildBarcodeSvg(scanId, { maxWidthMm: contentWidthMm, heightMm: BARCODE_HEIGHT_MM });
+      const qr = buildQrSvg(scanId, { maxSizeMm: QR_MAX_MM });
+      const qtyParts = [label?.quantityText, label?.sequenceText]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean)
+        .map(escapeHtml);
 
       return `
-      <section class="sticker ${index < expandedLabels.length - 1 ? 'page-break' : ''}">
-        <div class="sticker-inner">
-          <div class="sticker-content">
-            <div class="product">${escapeHtml(productLine || '-')}</div>
-            <div class="barcode-mid">
-              ${barcodeSvg}
-              <div class="code-text">${escapeHtml(barcodeValue)}</div>
-            </div>
-            <div class="date-block">
-              <div class="date-info">
-                <div class="date-label">วันที่ผลิต</div>
-                <div class="date-value">${escapeHtml(producedDate)}</div>
-              </div>
-              <div class="date-qr">
-                ${qrSvg}
-              </div>
-            </div>
-            <div class="footer">
-              ${footerParts || '<span>&nbsp;</span>'}
-            </div>
-            <div class="bottom-row">
-              <div class="lot">ล็อต ${escapeHtml(lotNo)}</div>
-            </div>
+      <section class="sticker${index < expandedLabels.length - 1 ? ' page-break' : ''}">
+        <div class="product">${escapeHtml(productLine || '-')}</div>
+        <div class="barcode">${barcode.svg}</div>
+        <div class="scan-id" style="width:${barcode.widthMm}mm">${escapeHtml(formatScanId(scanId))}</div>
+        <div class="bottom">
+          <div class="info">
+            <div class="date-label">วันที่ผลิต</div>
+            <div class="date-value">${escapeHtml(producedDate)}</div>
+            <div class="qty">${qtyParts.join(' · ') || '&nbsp;'}</div>
           </div>
+          <div class="qr">${qr.svg}</div>
         </div>
       </section>
       `;
@@ -254,16 +195,10 @@ export const buildTransformStickerHtml = (labels = [], options = {}) => {
   <title>Transform Sticker</title>
   <style>
     @page {
-      size: ${pageWidth} ${pageHeight} !important;
-      size: ${pageWidth} ${pageHeight} ${pageOrientation} !important;
-      margin: 0 !important;
+      size: ${pageWidth} ${pageHeight};
+      margin: 0;
     }
     @media print {
-      @page {
-        size: ${pageWidth} ${pageHeight} !important;
-        size: ${pageWidth} ${pageHeight} ${pageOrientation} !important;
-        margin: 0 !important;
-      }
       html, body {
         width: ${pageWidth} !important;
         height: ${pageHeight} !important;
@@ -275,139 +210,58 @@ export const buildTransformStickerHtml = (labels = [], options = {}) => {
     }
     html, body {
       width: ${pageWidth};
-      height: ${pageHeight};
       margin: 0;
       padding: 0;
       font-family: Tahoma, "Noto Sans Thai", sans-serif;
       color: #000;
+      background: #fff;
     }
     .sticker {
       box-sizing: border-box;
       width: ${pageWidth};
       height: ${pageHeight};
-      padding: ${layout.padding};
-      position: relative;
-      overflow: hidden;
-    }
-    .sticker-inner {
-      width: 100%;
-      height: 100%;
-      position: relative;
-    }
-    .sticker-content {
+      padding: ${layout.padYMm}mm ${layout.padXMm}mm;
       display: flex;
       flex-direction: column;
-      gap: ${layout.gap};
-      width: 100%;
-      height: 100%;
-      transform: scale(${contentScale});
-      transform-origin: top left;
+      overflow: hidden;
     }
-    .page-break { page-break-after: always; }
+    .page-break { page-break-after: always; break-after: page; }
     .product {
-      font-size: ${layout.productFont};
+      font-size: 14px;
       font-weight: 700;
-      line-height: 1.12;
-      min-height: ${layout.productMinHeight};
-      max-height: ${layout.productMaxHeight};
+      line-height: 1.15;
+      max-height: 8.6mm;
       overflow: hidden;
       display: -webkit-box;
-      -webkit-line-clamp: ${layout.productLineClamp};
+      -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
     }
-    .barcode-mid {
-      display: flex;
-      flex-direction: column;
-      gap: 0.6mm;
+    .barcode {
+      margin-top: 1mm;
+      height: ${BARCODE_HEIGHT_MM}mm;
+      line-height: 0;
     }
-    .barcode-mid svg {
-      width: 100%;
-      height: ${layout.barcodeHeight};
-      border: 1px solid #111;
-      box-sizing: border-box;
-    }
-    .date-block {
-      border-top: 1px solid #000;
-      border-bottom: 1px solid #000;
-      padding: ${layout.datePadding || '2mm'} 0;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      align-items: center;
-      gap: 1.4mm;
-    }
-    .date-info {
-      min-width: 0;
-    }
-    .date-label {
-      font-size: ${layout.dateLabelFont};
-      color: #222;
-      margin-bottom: 0.8mm;
-    }
-    .date-value {
-      font-size: ${layout.dateValueFont};
+    .barcode svg, .qr svg { display: block; }
+    .scan-id {
+      text-align: center;
+      font-size: 10px;
       font-weight: 700;
-      line-height: 1.05;
-    }
-    .footer {
-      display: flex;
-      justify-content: flex-start;
-      align-items: center;
-      gap: 1mm;
-      font-size: ${layout.footerFont};
-      font-weight: 600;
-      min-height: ${layout.footerMinHeight};
-    }
-    .sep { color: #666; }
-    .code-text {
-      font-size: ${layout.codeTextFont};
-      line-height: 1;
-      letter-spacing: 0.1px;
+      letter-spacing: 1px;
+      line-height: 1.2;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
-    .bottom-row {
+    .bottom {
       margin-top: auto;
       display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: ${layout.bottomRowGap};
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 3.5mm;
     }
-    .date-qr {
-      width: ${layout.dateQrSize};
-      height: ${layout.dateQrSize};
-      border: 1px solid #111;
-      box-sizing: border-box;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0.6mm;
-      background: #fff;
-    }
-    .date-qr svg {
-      width: 100%;
-      height: 100%;
-      display: block;
-      shape-rendering: crispEdges;
-    }
-    .lot {
-      font-size: ${layout.lotFont};
-      color: #333;
-      letter-spacing: 0.2px;
-      line-height: 1.15;
-    }
-    ${useLandscapeFallback ? `
-    @media print {
-      .sticker-content {
-        position: absolute;
-        top: 0;
-        left: ${pageWidth};
-        width: ${pageHeight};
-        height: ${pageWidth};
-        transform-origin: top left;
-        transform: rotate(90deg) scale(${contentScale});
-      }
-    }` : ''}
+    .info { min-width: 0; }
+    .date-label { font-size: 9px; }
+    .date-value { font-size: 18px; font-weight: 700; line-height: 1.1; }
+    .qty { font-size: 12px; font-weight: 700; margin-top: 1mm; white-space: nowrap; }
+    .qr { line-height: 0; }
     .print-toolbar {
       position: fixed;
       left: 0;
@@ -437,7 +291,7 @@ export const buildTransformStickerHtml = (labels = [], options = {}) => {
     <button type="button" class="primary" onclick="window.print()">พิมพ์</button>
     <button type="button" onclick="window.close()">ปิด</button>
   </div>
-  ${pages || '<section class="sticker"><div class="header">ไม่มีข้อมูลพิมพ์</div></section>'}
+  ${pages || '<section class="sticker"><div class="product">ไม่มีข้อมูลพิมพ์</div></section>'}
 </body>
 </html>`;
 };

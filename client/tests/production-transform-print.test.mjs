@@ -1,9 +1,11 @@
-// สติกเกอร์แปรรูป: วันที่ล็อต/บาร์โค้ดต้องเป็นวันไทย และหน้าต่างพิมพ์บนมือถือต้องไม่ถูกปิดก่อนพิมพ์เสร็จ
+// สติกเกอร์แปรรูป: สแกนง่าย (จุดเต็มที่ 203 dpi), วันที่เป็นวันไทย และหน้าต่างพิมพ์บนมือถือต้องไม่ถูกปิดก่อนพิมพ์เสร็จ
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { afterEach, mock, test } from 'node:test';
 import {
-  buildLotNo,
+  buildBarcodeSvg,
+  buildQrSvg,
+  buildScanId,
   buildTransformStickerHtml,
   extractYmd,
   printTransformStickers,
@@ -68,13 +70,34 @@ test('extractYmd uses the Bangkok day, not the UTC day', () => {
   assert.equal(extractYmd('not a date'), null);
 });
 
-test('lot number and barcode of an early-morning transform carry the Thai date', () => {
-  assert.match(buildLotNo(label.referenceId, label.producedAt), /^LOT20261113-/);
-  const html = buildTransformStickerHtml([label], { layout: '3x2' });
-  assert.match(html, /ล็อต LOT20261113-/);
-  assert.match(html, /PK001-261113-/);
-  assert.doesNotMatch(html, /LOT20261112/);
-  assert.doesNotMatch(html, /PK001-261112-/);
+test('one 12-digit scan id for barcode and QR, from the transform reference', () => {
+  assert.equal(buildScanId(label), '731450600000');
+  assert.equal(buildScanId({ referenceId: 'PRD-12345' }), '012345');
+  // ไม่มีเลขอ้างอิง: รหัสสินค้า + วันผลิตแบบวันไทย
+  assert.equal(buildScanId({ referenceId: '-', productCode: 'pk-001', producedAt: EARLY_MORNING_UTC }), 'PK001261113');
+  const html = buildTransformStickerHtml([label]);
+  assert.match(html, /class="scan-id"[^>]*>7314 5060 0000</);
+  assert.match(html, /วันที่ผลิต<\/div>\s*<div class="date-value">13\/11\/69</);
+});
+
+test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {
+  const barcode = buildBarcodeSvg('731450600000', { maxWidthMm: 64, heightMm: 11 });
+  assert.equal(barcode.moduleDots, 4);
+  // 101 โมดูล (CODE128 ชุด C) + quiet zone 10+10
+  assert.match(barcode.svg, /viewBox="0 0 121 1"/);
+  assert.equal(barcode.widthMm, 60.5);
+  assert.match(barcode.svg, /preserveAspectRatio="none"/);
+  assert.match(barcode.svg, /shape-rendering="crispEdges"/);
+  // รหัสยาวกว่าเดิมต้องย่อแท่งให้พอดี ไม่ล้นความกว้าง
+  const long = buildBarcodeSvg('PK001-261113-600000-EXTRA', { maxWidthMm: 64, heightMm: 11 });
+  assert.ok(long.widthMm <= 64);
+});
+
+test('QR is the smallest version with whole-dot modules', () => {
+  const qr = buildQrSvg('731450600000', { maxSizeMm: 18.5 });
+  assert.equal(qr.moduleCount, 21);
+  assert.equal(qr.moduleDots, 7);
+  assert.equal(qr.sizeMm, 18.375);
 });
 
 test('sticker page has a screen-only print/close bar', () => {
@@ -90,13 +113,15 @@ test('sticker page has a screen-only print/close bar', () => {
 test('transform page prints on the real 72x50 mm label (landscape)', () => {
   assert.equal(TRANSFORM_STICKER_LAYOUT, '72x50');
   const html = buildTransformStickerHtml([label]);
-  assert.match(html, /size: 72mm 50mm !important;/);
+  assert.match(html, /size: 72mm 50mm;/);
   assert.match(html, /width: 72mm !important;/);
   assert.match(html, /height: 50mm !important;/);
   // ขอบข้าง 4 มม. เผื่อเครื่องพิมพ์วางภาพเลื่อน ~2 มม.
-  assert.match(html, /padding: 2\.2mm 4mm;/);
-  assert.match(buildTransformStickerHtml([label], { layout: '3x2' }), /size: 3in 2in !important;/);
-  assert.match(buildTransformStickerHtml([label], { layout: 'unknown' }), /size: 72mm 50mm !important;/);
+  assert.match(html, /padding: 2mm 4mm;/);
+  // ไม่ย่อ/ขยายเนื้อหา ไม่งั้นแท่งบาร์โค้ดไม่ตรงจุดเครื่องพิมพ์
+  assert.doesNotMatch(html, /scale\(/);
+  assert.match(buildTransformStickerHtml([label], { layout: '3x2' }), /size: 76\.2mm 50\.8mm;/);
+  assert.match(buildTransformStickerHtml([label], { layout: 'unknown' }), /size: 72mm 50mm;/);
   const page = readFileSync(new URL('../src/pages/production/ProductionTransform.jsx', import.meta.url), 'utf8');
   assert.doesNotMatch(page, /layout: '3x2'/);
   assert.equal((page.match(/layout: TRANSFORM_STICKER_LAYOUT/g) || []).length, 2);
