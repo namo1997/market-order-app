@@ -11,6 +11,13 @@
 - คงlegacy receivingหลักและเส้นทางใหม่แยกชัดเจน; ลบเฉพาะcreate tabที่เข้าไม่ได้ ไม่ลบmanualitemหรือประวัติ/หลักฐาน
 - หลักฐานล่าสุดบน SSD `reports/simplification-fixes-20261104/`; ทุกcandidateต้องผ่านเทสต์จากsourceที่commitและexportใหม่ ไม่แก้ชุดexportเก่าที่ติดHOLDให้กลายเป็นreleaseเงียบ ๆ
 
+## สติกเกอร์แปรรูป / สแกน / จัดของส่งสาขา — 13 พ.ย. 2026 (branch `market/transform-print-fix-20261113`, ยังไม่ deploy)
+
+- รหัสสติกเกอร์ 12 หลัก = `inventory_transactions.id` ของแถวรับเข้าจากการแปรรูป 8 หลัก + ลำดับดวง 4 หลัก (`server/src/utils/transform-sticker-code.js` ต้องตรงกับ `client/src/pages/production/transformStickerPrint.js`); สติกเกอร์ 72×50 มม. สำหรับเครื่องพิมพ์ฉลาก 203 dpi
+- `GET /api/withdraw/sticker/:code` (สิทธิ์หน้าเบิก) และ `/api/production/packing` (requireAdminOrProduction; กลุ่มสินค้าตาม `allowed_product_group_ids`, ผู้ดูแลใช้กลุ่ม 8 ผลิตสันกำแพง, ไม่มีกลุ่ม = ไม่เห็นใบสั่ง)
+- ตารางใหม่ (สร้างเองตอนเรียกครั้งแรก): `production_packing_scans` (unique `sticker_code`: ดวงหนึ่งจัดได้สาขาเดียว), `production_packing_status` — รุ่นแรกไม่เปลี่ยนการตัดสต็อก (ยังตัดตอนสาขารับของ `order_receiving`)
+- หน้าใหม่ `/production/packing` (เมนู "จัดของส่งสาขา"); สแกนได้ 3 ทาง: ช่องสแกน, เครื่องยิงแบบคีย์บอร์ด (`useWedgeScanner`), กล้อง (`CameraScanner`, zxing แยก chunk)
+
 อ่านกติกา `/Users/surachart/.solao-tools/SSD_POLICY.md` ก่อนสำรอง ทดสอบ build หรือจำลองข้อมูล ตามคำสั่งผู้ใช้ 4 ต.ค. 2026 ทุกระบบย่อยใช้ SSD เท่านั้นสำหรับข้อมูลที่สร้างใหม่
 
 - ใช้ `node /Users/surachart/.solao-tools/ssd-workspace.mjs check --project market-order-system` ก่อนสร้างไฟล์

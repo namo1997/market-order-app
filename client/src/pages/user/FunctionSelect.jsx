@@ -44,6 +44,13 @@ const TransformIcon = () => (
   </svg>
 );
 
+const PackIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 8l8-4 8 4v8l-8 4-8-4z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 8l8 4 8-4M12 12v8" />
+  </svg>
+);
+
 const WithdrawIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4v9" />
@@ -146,6 +153,18 @@ export const FunctionSelect = () => {
       tone: 'border-indigo-200 bg-indigo-50/70 hover:border-indigo-300',
       iconTone: 'bg-indigo-100 text-indigo-700',
       icon: PrintIcon
+    });
+  }
+
+  if (canViewSupplierOrders && (isProduction || isAdmin)) {
+    actions.push({
+      title: 'จัดของส่งสาขา',
+      description: 'สแกนสติกเกอร์ตามใบส่งสินค้า',
+      path: '/production/packing',
+      group: 'production',
+      tone: 'border-sky-200 bg-sky-50/70 hover:border-sky-300',
+      iconTone: 'bg-sky-100 text-sky-700',
+      icon: PackIcon
     });
   }
 

@@ -147,6 +147,26 @@ test('scan feedback: sound + vibration, toast above page, running summary', asyn
   assert.match(page, /'ไม่พบสติกเกอร์'/);
 });
 
+test('packing page: per-branch list, scan feedback per outcome, stable line order, menu + route', () => {
+  const page = readFileSync(new URL('../src/pages/production/ProductionPacking.jsx', import.meta.url), 'utf8');
+  for (const text of ['เกินที่สั่ง', 'สแกนดวงนี้แล้ว', 'ไม่มีในใบสั่ง', 'ไม่พบสติกเกอร์', 'จัดเสร็จ']) {
+    assert.ok(page.includes(text), text);
+  }
+  assert.match(page, /case 'over':/);
+  assert.match(page, /case 'not_in_order':/);
+  assert.match(page, /useWedgeScanner\(/);
+  assert.match(page, /<CameraScanner/);
+  // บรรทัดไม่กระโดดเมื่อครบ: ใช้ลำดับจาก server ตรง ๆ
+  assert.match(page, /const sortedLines = branch\?\.lines \|\| \[\];/);
+  assert.match(page, /scrollIntoView\(\{ block: 'center'/);
+  const app = readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(app, /path="\/production\/packing"[\s\S]{0,120}requireSupplierOrders/);
+  const menu = readFileSync(new URL('../src/pages/user/FunctionSelect.jsx', import.meta.url), 'utf8');
+  assert.match(menu, /title: 'จัดของส่งสาขา'/);
+  const api = readFileSync(new URL('../src/api/productionPacking.js', import.meta.url), 'utf8');
+  assert.match(api, /\/production\/packing\/branches\/\$\{branchId\}\/scan/);
+});
+
 test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {
   const barcode = buildBarcodeSvg('731450600000', { maxWidthMm: 64, heightMm: 11 });
   assert.equal(barcode.moduleDots, 4);

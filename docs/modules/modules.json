@@ -485,6 +485,7 @@
       "pages": [
         "/production/transform",
         "/production/print-orders",
+        "/production/packing",
         "/admin/settings/recipes",
         "/admin/settings/production-transform-recipes",
         "/admin/settings/unit-conversions"
@@ -493,18 +494,23 @@
         "/api/inventory/production/*",
         "/api/recipes",
         "/api/unit-conversions",
-        "/api/inventory/production/usage-units"
+        "/api/inventory/production/usage-units",
+        "/api/production/packing"
       ],
       "server": [
         "server/src/controllers/recipe.controller.js",
         "server/src/models/recipe.model.js",
         "server/src/models/production-transform-config.model.js",
         "server/src/controllers/unit-conversion.controller.js",
-        "server/src/controllers/production-usage-unit.controller.js"
+        "server/src/controllers/production-usage-unit.controller.js",
+        "server/src/models/production-packing.model.js",
+        "server/src/controllers/production-packing.controller.js",
+        "server/src/routes/production-packing.routes.js"
       ],
       "client": [
         "client/src/pages/production/ProductionTransform.jsx",
         "client/src/pages/production/transformStickerPrint.js",
+        "client/src/pages/production/ProductionPacking.jsx",
         "client/src/pages/admin/masters/RecipeManagement.jsx",
         "client/src/pages/admin/masters/ProductionTransformRecipeSettings.jsx",
         "client/src/pages/production/ProductionUsageUnitTab.jsx"
@@ -515,7 +521,9 @@
         "production_transform_product_configs",
         "production_transform_config_required_ingredients",
         "product_group_transform_scopes",
-        "unit_conversions"
+        "unit_conversions",
+        "production_packing_scans",
+        "production_packing_status"
       ],
       "dependsOn": [
         "inventory",
