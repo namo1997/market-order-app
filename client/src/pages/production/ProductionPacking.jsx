@@ -84,6 +84,11 @@ const LineRow = ({ line, highlighted, onAdjust, rowRef }) => {
         </p>
         <p className={`text-sm tabular-nums ${over ? 'font-bold text-amber-700' : 'text-gray-600'}`}>
           {fmt(line.packed)} / {fmt(line.ordered)} {line.unit}
+          {line.pack_size > 0 && (
+            <span className="ml-1 text-gray-500">
+              · {fmt(Math.floor(line.packed / line.pack_size + 1e-9))}/{fmt(Math.ceil(line.ordered / line.pack_size - 1e-9))} {line.pack_unit_label || 'ถุง'}
+            </span>
+          )}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">

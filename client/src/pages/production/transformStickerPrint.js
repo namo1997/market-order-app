@@ -118,24 +118,54 @@ export const buildQrSvg = (value, { maxSizeMm } = {}) => {
   };
 };
 
-export const getStickerCopies = (quantityValue) => {
+// จำนวนดวงและจำนวนต่อดวง — ต้องเหมือน server/src/utils/transform-sticker-code.js
+// - ตั้ง "บรรจุแพ็คละ" (packSize): 1 ดวงต่อ 1 แพ็ค, ดวงสุดท้ายนับเศษ (12 ตัว แพ็คละ 5 = 5, 5, 2)
+// - ไม่ได้ตั้ง: จำนวนเต็ม = ดวงละ 1 หน่วย (10 => 10 ดวง), มีทศนิยม = ดวงเดียวทั้งก้อน
+export const MAX_STICKER_COPIES = 200;
+const round3 = (value) => Math.round(value * 1000) / 1000;
+const isWhole = (value) => Math.abs(value - Math.round(value)) < 0.000001;
+
+export const getStickerCopies = (quantityValue, packSize = 0) => {
   const qty = Number(quantityValue);
+  const pack = Number(packSize);
   if (!Number.isFinite(qty) || qty <= 0) return 1;
-  // ถ้าเป็นจำนวนเต็ม ให้พิมพ์ตามจำนวนชุด เช่น 10 => 10 ดวง
-  if (Math.abs(qty - Math.round(qty)) < 0.000001) return Math.max(1, Math.round(qty));
-  // ถ้าไม่เต็มจำนวน ให้พิมพ์อย่างน้อย 1 ดวง
+  if (pack > 0) return Math.min(MAX_STICKER_COPIES, Math.max(1, Math.ceil(round3(qty / pack))));
+  if (isWhole(qty)) return Math.min(MAX_STICKER_COPIES, Math.max(1, Math.round(qty)));
   return 1;
 };
+
+export const getQuantityPerSticker = (quantityValue, packSize = 0, sequence = 1) => {
+  const qty = Number(quantityValue);
+  const pack = Number(packSize);
+  if (!Number.isFinite(qty) || qty <= 0) return 0;
+  if (pack > 0) {
+    const copies = getStickerCopies(qty, pack);
+    const seq = Math.min(Math.max(1, Number(sequence) || 1), copies);
+    return seq < copies ? pack : round3(qty - pack * (copies - 1));
+  }
+  if (isWhole(qty)) return Math.round(qty) > MAX_STICKER_COPIES ? qty / MAX_STICKER_COPIES : 1;
+  return qty;
+};
+
+const fmtQty = (value) => String(Number(Number(value).toFixed(3)));
 
 export const expandStickerLabels = (labels = []) => {
   const expanded = [];
   for (const label of (Array.isArray(labels) ? labels : [])) {
-    const copies = Math.min(getStickerCopies(label?.quantityValue), 200);
+    const packSize = Number(label?.packSize) > 0 ? Number(label.packSize) : 0;
+    const copies = getStickerCopies(label?.quantityValue, packSize);
     for (let i = 1; i <= copies; i += 1) {
+      // แพ็ค: บอกจำนวนในถุงนี้แทนยอดรวม เช่น "5 ตัว" (ถุงสุดท้าย "2 ตัว")
+      const quantityText = packSize > 0
+        ? `${fmtQty(getQuantityPerSticker(label.quantityValue, packSize, i))} ${String(label?.productUnit || '').trim()}`.trim()
+        : label?.quantityText;
       expanded.push({
         ...label,
+        quantityText,
         sequence: i,
-        sequenceText: copies > 1 ? `${i}/${copies}` : ''
+        sequenceText: copies > 1
+          ? `${packSize > 0 ? `${label?.packUnitLabel || 'ถุง'} ` : ''}${i}/${copies}`
+          : ''
       });
     }
   }

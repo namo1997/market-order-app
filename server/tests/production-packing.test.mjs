@@ -26,6 +26,7 @@ const fakeDb = () => {
     scans,
     query: async (sql, params = []) => {
       if (/CREATE TABLE/.test(sql)) return [[]];
+      if (/FROM product_pack_sizes/.test(sql)) return [[{ product_id: 146, pack_size: '5.000', pack_unit_label: 'ถุง' }]];
       if (/FROM production_packing_status/.test(sql)) return [[]];
       if (/WHERE s\.sticker_code = \?/.test(sql)) {
         const row = scans.find((scan) => scan.sticker_code === params[0]);
@@ -118,6 +119,9 @@ test('manual +/- may exceed the order but never goes below zero', async () => {
   assert.equal(branch.packed_total, 10);
   assert.equal(branch.complete_lines, 1);
   assert.equal(branch.entries[0].source, 'manual');
+  // แพ็คติดมากับบรรทัด ให้หน้าจอบอกจำนวนถุง
+  assert.equal(line.pack_size, 5);
+  assert.equal(line.pack_unit_label, 'ถุง');
 });
 
 test('no product groups means no orders (never fall back to every group)', async () => {

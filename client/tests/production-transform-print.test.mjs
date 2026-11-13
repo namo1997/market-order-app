@@ -213,6 +213,31 @@ test('packing taps are instant and batched: no button lock, one request per burs
   assert.match(page, /const backToBranches = async \(\) => \{\s*await flushAll\(\);/);
 });
 
+test('pack size: stickers per pack with the remainder on the last, same formula as the server', async () => {
+  const client = await import('../src/pages/production/transformStickerPrint.js');
+  const server = await import('../../server/src/utils/transform-sticker-code.js');
+  for (const [qty, pack] of [[12, 5], [100, 5], [101, 5], [3, 0], [2.5, 0], [250, 0], [7.5, 2], [1, 5]]) {
+    const copies = client.getStickerCopies(qty, pack);
+    assert.equal(copies, server.getStickerCopies(qty, pack), `copies ${qty}/${pack}`);
+    for (let seq = 1; seq <= copies; seq += 1) {
+      assert.equal(client.getQuantityPerSticker(qty, pack, seq), server.getQuantityPerSticker(qty, pack, seq), `${qty}/${pack}#${seq}`);
+    }
+  }
+  const labels = client.expandStickerLabels([{
+    productName: 'ไก่บ้านหมักย่าง', productUnit: 'ตัว', transactionId: 150000,
+    quantityText: '+12 ตัว', quantityValue: 12, packSize: 5, packUnitLabel: 'ถุง'
+  }]);
+  assert.deepEqual(labels.map((l) => l.quantityText), ['5 ตัว', '5 ตัว', '2 ตัว']);
+  assert.deepEqual(labels.map((l) => l.sequenceText), ['ถุง 1/3', 'ถุง 2/3', 'ถุง 3/3']);
+  const html = client.buildTransformStickerHtml(labels.slice(0, 1).map(({ sequence, sequenceText, quantityText, ...rest }) => rest));
+  assert.match(html, /5 ตัว · ถุง 1\/3/);
+
+  const page = readFileSync(new URL('../src/pages/production/ProductionTransform.jsx', import.meta.url), 'utf8');
+  assert.match(page, /\.\.\.packFieldsFor\(item\.product_id\)/);
+  assert.match(page, /\.\.\.packFieldsFor\(row\.product_id\)/);
+  assert.match(page, /ตั้งค่าแพ็ค/);
+});
+
 test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {
   const barcode = buildBarcodeSvg('731450600000', { maxWidthMm: 64, heightMm: 11 });
   assert.equal(barcode.moduleDots, 4);

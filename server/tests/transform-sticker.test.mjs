@@ -21,6 +21,16 @@ test('sticker code round-trips transaction id and sequence', () => {
   assert.equal(encodeTransformStickerCode(100_000_000, 1), null);
 });
 
+test('pack size: one sticker per pack, last sticker carries the remainder', () => {
+  // ไก่ย่าง 12 ตัว ถุงละ 5 → 3 ดวง: 5, 5, 2
+  assert.equal(getStickerCopies(12, 5), 3);
+  assert.deepEqual([1, 2, 3].map((seq) => getQuantityPerSticker(12, 5, seq)), [5, 5, 2]);
+  assert.equal(getStickerCopies(100, 5), 20);
+  assert.equal(getQuantityPerSticker(100, 5, 20), 5);
+  assert.equal(getStickerCopies(2.5, 1), 3);
+  assert.equal(getQuantityPerSticker(2.5, 1, 3), 0.5);
+});
+
 test('quantity per sticker matches how many stickers were printed', () => {
   assert.equal(getStickerCopies(3), 3);
   assert.equal(getQuantityPerSticker(3), 1);
@@ -30,11 +40,15 @@ test('quantity per sticker matches how many stickers were printed', () => {
   assert.equal(getQuantityPerSticker(400), 2);
 });
 
-const fakeDb = (rows) => {
+const fakeDb = (rows, packs = []) => {
   const calls = [];
   return {
     calls,
     query: async (sql, params) => {
+      if (/product_pack_sizes/.test(sql)) {
+        if (/CREATE TABLE/.test(sql)) return [[]];
+        return [packs.filter((pack) => pack.product_id === params?.[0])];
+      }
       calls.push({ sql, params });
       return [rows];
     }
@@ -56,6 +70,21 @@ test('lookup only accepts transform output rows and returns per-sticker quantity
   assert.deepEqual(db.calls[0].params, [146290]);
   assert.match(db.calls[0].sql, /reference_type = 'production_transform'/);
   assert.match(db.calls[0].sql, /it\.quantity > 0/);
+});
+
+test('lookup uses the product pack size for the per-sticker quantity', async () => {
+  const row = {
+    id: 150000, reference_id: 'PRD-2', product_id: 204, department_id: 20, quantity: '12.00',
+    created_at: new Date('2026-11-09T03:55:08Z'), product_name: 'ไก่บ้านหมักย่าง', product_code: 'PT0036',
+    unit_name: 'ตัว', unit_abbr: 'ตัว', department_name: 'แผนกครัว'
+  };
+  const db = fakeDb([row], [{ product_id: 204, pack_size: '5.000', pack_unit_label: 'ถุง' }]);
+  const first = await findTransformSticker('001500000001', { db });
+  assert.equal(first.sticker.quantity_per_sticker, 5);
+  assert.equal(first.sticker.copies, 3);
+  assert.equal(first.sticker.pack_size, 5);
+  const last = await findTransformSticker('001500000003', { db });
+  assert.equal(last.sticker.quantity_per_sticker, 2);
 });
 
 test('lookup reports invalid and missing codes without guessing', async () => {

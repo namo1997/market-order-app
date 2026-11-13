@@ -22,20 +22,34 @@ export const decodeTransformStickerCode = (value) => {
   return { code: text, transactionId, sequence };
 };
 
-// เหมือน getStickerCopies ฝั่ง client: จำนวนเต็ม = ดวงละ 1 หน่วย, มีทศนิยม = ดวงเดียวทั้งก้อน
-export const getStickerCopies = (quantity) => {
+// จำนวนดวงและจำนวนต่อดวง (ต้องเหมือน client/src/pages/production/transformStickerPrint.js)
+// - ตั้ง "บรรจุแพ็คละ" (packSize) ไว้: 1 ดวงต่อ 1 แพ็ค, ดวงสุดท้ายนับเศษ (เช่น 12 ตัว แพ็คละ 5 = 5, 5, 2)
+// - ไม่ได้ตั้ง: จำนวนเต็ม = ดวงละ 1 หน่วย, มีทศนิยม = ดวงเดียวทั้งก้อน
+export const MAX_STICKER_COPIES = 200;
+const round3 = (value) => Math.round(value * 1000) / 1000;
+const isWhole = (value) => Math.abs(value - Math.round(value)) < 0.000001;
+
+export const getStickerCopies = (quantity, packSize = 0) => {
   const qty = Number(quantity);
+  const pack = Number(packSize);
   if (!Number.isFinite(qty) || qty <= 0) return 1;
-  if (Math.abs(qty - Math.round(qty)) < 0.000001) return Math.min(200, Math.max(1, Math.round(qty)));
+  if (pack > 0) return Math.min(MAX_STICKER_COPIES, Math.max(1, Math.ceil(round3(qty / pack))));
+  if (isWhole(qty)) return Math.min(MAX_STICKER_COPIES, Math.max(1, Math.round(qty)));
   return 1;
 };
 
-export const getQuantityPerSticker = (quantity) => {
+export const getQuantityPerSticker = (quantity, packSize = 0, sequence = 1) => {
   const qty = Number(quantity);
+  const pack = Number(packSize);
   if (!Number.isFinite(qty) || qty <= 0) return 0;
-  if (Math.abs(qty - Math.round(qty)) < 0.000001) {
+  if (pack > 0) {
+    const copies = getStickerCopies(qty, pack);
+    const seq = Math.min(Math.max(1, Number(sequence) || 1), copies);
+    return seq < copies ? pack : round3(qty - pack * (copies - 1));
+  }
+  if (isWhole(qty)) {
     // เกิน 200 ดวงพิมพ์แค่ 200 ดวง จึงแบ่งเท่า ๆ กัน
-    return Math.round(qty) > 200 ? qty / 200 : 1;
+    return Math.round(qty) > MAX_STICKER_COPIES ? qty / MAX_STICKER_COPIES : 1;
   }
   return qty;
 };

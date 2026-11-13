@@ -3,6 +3,7 @@ import {
   getQuantityPerSticker,
   getStickerCopies
 } from '../utils/transform-sticker-code.js';
+import { getPackSize } from './product-pack-size.model.js';
 
 // ค้นสติกเกอร์แปรรูปจากรหัสที่สแกน: เฉพาะแถวรับเข้าจากการแปรรูป (reference_type=production_transform, quantity>0)
 // โหลด pool เมื่อใช้จริง (import ตอนโหลดไฟล์จะเปิด connection ค้างและทำให้เทสต์ไม่จบ)
@@ -32,7 +33,10 @@ export const findTransformSticker = async (code, { db } = {}) => {
   if (!row) return { status: 'not_found', ...decoded };
 
   const quantity = Number(row.quantity);
-  const copies = getStickerCopies(quantity);
+  // แพ็คตามค่าที่ตั้งตอนนี้ (ถ้าเปลี่ยนค่าหลังพิมพ์ สติกเกอร์เก่าจะนับตามค่าใหม่)
+  const pack = await getPackSize(row.product_id, { db });
+  const packSize = pack?.pack_size || 0;
+  const copies = getStickerCopies(quantity, packSize);
   return {
     status: 'ok',
     sticker: {
@@ -41,7 +45,9 @@ export const findTransformSticker = async (code, { db } = {}) => {
       sequence: decoded.sequence,
       copies,
       sequence_valid: decoded.sequence <= copies,
-      quantity_per_sticker: getQuantityPerSticker(quantity),
+      quantity_per_sticker: getQuantityPerSticker(quantity, packSize, decoded.sequence),
+      pack_size: packSize || null,
+      pack_unit_label: pack?.pack_unit_label || null,
       batch_quantity: quantity,
       reference_id: row.reference_id,
       produced_at: row.created_at,

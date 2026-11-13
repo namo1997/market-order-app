@@ -2,6 +2,7 @@
 // รุ่นแรก: ตรวจหยิบถูก/ครบ + เก็บว่าสติกเกอร์ (ล็อต) ดวงไหนไปสาขาไหน — ยังไม่เปลี่ยนการตัดสต็อก
 // (สต็อกครัวกลางยังถูกตัดตอนสาขารับของเหมือนเดิม)
 import { findTransformSticker } from './transform-sticker.model.js';
+import { getPackSizeMap } from './product-pack-size.model.js';
 
 // กลุ่มสินค้าครัวกลางที่หน้าคำสั่งซื้อใช้ (ตรงกับ PRODUCTION_SUPPLIER_ID ใน client OrderHistory.jsx)
 export const DEFAULT_PRODUCTION_GROUP_IDS = [8];
@@ -183,8 +184,17 @@ export const getBranchPacking = async ({ date, branchId, groupIds, db, getOrderI
   const branches = await loadBranchLines({ date, groupIds, getOrderItems });
   const branch = branches.find((row) => row.branch_id === Number(branchId));
   if (!branch) return null;
-  const [packed, statuses] = await Promise.all([loadPacked(db, date, branch.branch_id), loadStatuses(db, date)]);
+  const [packed, statuses, packs] = await Promise.all([
+    loadPacked(db, date, branch.branch_id),
+    loadStatuses(db, date),
+    getPackSizeMap(branch.lines.map((line) => line.product_id), { db })
+  ]);
   const result = attachPacked(branch, packed, statuses.get(branch.branch_id));
+  // แพ็ค: ให้หน้าจัดของบอกจำนวนถุง เช่น 10/15 ตัว · 2/3 ถุง
+  result.lines = result.lines.map((line) => {
+    const pack = packs.get(line.product_id);
+    return pack ? { ...line, pack_size: pack.pack_size, pack_unit_label: pack.pack_unit_label } : line;
+  });
   const names = new Map(result.lines.map((line) => [line.product_id, line]));
   result.entries = packed
     .slice()

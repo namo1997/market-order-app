@@ -8,6 +8,8 @@ import { inventoryAPI } from '../../api/inventory';
 import { useAuth } from '../../contexts/AuthContext';
 import { usageUnitOf, inputUnitLabel, toBaseQuantity, formatNumber } from '../../utils/usage-unit';
 import { ProductionUsageUnitTab } from './ProductionUsageUnitTab';
+import { ProductionPackSizeTab } from './ProductionPackSizeTab';
+import { productPackSizesAPI } from '../../api/productPackSizes';
 import { printTransformStickers, TRANSFORM_STICKER_LAYOUT } from './transformStickerPrint';
 import { bangkokDate } from '../../utils/salesReportDates';
 
@@ -70,6 +72,8 @@ export const ProductionTransform = () => {
   const [historyDate, setHistoryDate] = useState(() => bangkokDate());
   const [historyRows, setHistoryRows] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // บรรจุแพ็คละ (product_id → { pack_size, pack_unit_label }) ใช้ตอนพิมพ์สติกเกอร์ 1 ดวงต่อแพ็ค
+  const [packSizes, setPackSizes] = useState(() => new Map());
   const [editingRow, setEditingRow] = useState(null);
   const [editQuantity, setEditQuantity] = useState('');
   const [editNotes, setEditNotes] = useState('');
@@ -186,6 +190,34 @@ export const ProductionTransform = () => {
   useEffect(() => {
     loadData();
   }, [departmentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    productPackSizesAPI.list()
+      .then((response) => {
+        if (cancelled) return;
+        const rows = Array.isArray(response?.data) ? response.data : [];
+        setPackSizes(new Map(rows.map((row) => [Number(row.product_id), row])));
+      })
+      .catch((error) => console.error('Error loading pack sizes:', error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handlePackSizeSaved = (productId, pack) => {
+    setPackSizes((prev) => {
+      const next = new Map(prev);
+      if (pack) next.set(Number(productId), pack);
+      else next.delete(Number(productId));
+      return next;
+    });
+  };
+
+  const packFieldsFor = (productId) => {
+    const pack = packSizes.get(Number(productId));
+    return pack ? { packSize: Number(pack.pack_size), packUnitLabel: pack.pack_unit_label } : {};
+  };
 
   useEffect(() => {
     if (activeTab === 'history') {
@@ -500,7 +532,7 @@ export const ProductionTransform = () => {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-2">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <button
               type="button"
               onClick={() => handleSelectTab('create')}
@@ -533,6 +565,17 @@ export const ProductionTransform = () => {
               }`}
             >
               ตั้งค่าแปลงหน่วย
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectTab('packs')}
+              className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                activeTab === 'packs'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-50 text-gray-700 hover:bg-slate-100'
+              }`}
+            >
+              ตั้งค่าแพ็ค
             </button>
           </div>
         </div>
@@ -707,6 +750,7 @@ export const ProductionTransform = () => {
                     productName: item.product_name,
                     productUnit: item.product_unit || '',
                     productCode: item.product_code || item.product_id || '',
+                    ...packFieldsFor(item.product_id),
                     productId: item.product_id || '',
                     producedAt: summary.transform_date || summary.printed_at,
                     referenceId: item.reference_id,
@@ -728,6 +772,10 @@ export const ProductionTransform = () => {
 
         {activeTab === 'units' && (
           <ProductionUsageUnitTab departmentId={departmentId} onSaved={loadData} />
+        )}
+
+        {activeTab === 'packs' && (
+          <ProductionPackSizeTab products={outputProducts} packSizes={packSizes} onChange={handlePackSizeSaved} />
         )}
 
         {activeTab === 'history' && (
@@ -787,6 +835,7 @@ export const ProductionTransform = () => {
                               productName: row.product_name,
                               productUnit: row.unit_abbr || row.unit_name || '',
                               productCode: row.product_code || row.product_id || '',
+                              ...packFieldsFor(row.product_id),
                               productId: row.product_id || '',
                               producedAt: row.effective_at || row.created_at,
                               referenceId: row.reference_id,
