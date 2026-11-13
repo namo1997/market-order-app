@@ -458,10 +458,13 @@
       "server": [
         "server/src/controllers/withdraw.controller.js",
         "server/src/models/withdraw.model.js",
-        "server/src/models/withdraw-source-mapping.model.js"
+        "server/src/models/withdraw-source-mapping.model.js",
+        "server/src/models/transform-sticker.model.js",
+        "server/src/utils/transform-sticker-code.js"
       ],
       "client": [
-        "client/src/pages/user/WithdrawStock.jsx"
+        "client/src/pages/user/WithdrawStock.jsx",
+        "client/src/components/scan/CameraScanner.jsx"
       ],
       "tables": [
         "inventory_withdrawals",

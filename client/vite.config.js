@@ -13,6 +13,8 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
+          // ตัวอ่านบาร์โค้ดจากกล้อง: โหลดเฉพาะตอนกดเปิดกล้อง ไม่รวมใน vendor ที่ทุกหน้าโหลด
+          if (id.includes('@zxing')) return 'zxing';
 
           if (id.includes('react') || id.includes('scheduler')) {
             return 'react-vendor';

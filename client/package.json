@@ -14,6 +14,8 @@
     "test:google": "node --test src/receiving-app/google-auth.test.mjs"
   },
   "dependencies": {
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "axios": "^1.13.2",
     "jsbarcode": "^3.12.3",
     "qrcode-generator": "^2.0.4",

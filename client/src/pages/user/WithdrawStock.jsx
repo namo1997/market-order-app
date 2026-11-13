@@ -7,6 +7,7 @@ import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
 import { useAuth } from '../../contexts/AuthContext';
 import { withdrawAPI } from '../../api/withdraw';
+import { CameraScanner } from '../../components/scan/CameraScanner';
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -53,8 +54,14 @@ export const WithdrawStock = () => {
   const [scanCode, setScanCode] = useState('');
   const [scanBusy, setScanBusy] = useState(false);
   const [scanMessage, setScanMessage] = useState(null);
-  const [scannedStickers, setScannedStickers] = useState([]);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const scanInputRef = useRef(null);
+  // ใช้ ref เพราะกล้อง/เครื่องยิงเรียก handler จาก closure เก่า และอาจสแกนรัวก่อน state อัปเดต
+  const scannedStickersRef = useRef([]);
+  const pendingCodesRef = useRef(new Set());
+  const productsRef = useRef([]);
+  const isTouchDevice = typeof window !== 'undefined'
+    && Boolean(window.matchMedia?.('(pointer: coarse)')?.matches);
 
   const loadHistory = async () => {
     try {
@@ -246,7 +253,8 @@ export const WithdrawStock = () => {
       setDraftItems((prev) =>
         prev.filter((item) => Number(item.product_id) !== productId)
       );
-      setScannedStickers((prev) => prev.filter((entry) => Number(entry.product_id) !== productId));
+      scannedStickersRef.current = scannedStickersRef.current
+        .filter((entry) => Number(entry.product_id) !== productId);
       return;
     }
 
@@ -309,7 +317,8 @@ export const WithdrawStock = () => {
 
   const removeDraftItem = (productId) => {
     setDraftItems((prev) => prev.filter((item) => Number(item.product_id) !== Number(productId)));
-    setScannedStickers((prev) => prev.filter((entry) => Number(entry.product_id) !== Number(productId)));
+    scannedStickersRef.current = scannedStickersRef.current
+      .filter((entry) => Number(entry.product_id) !== Number(productId));
   };
 
   const addDraftQuantity = (product, delta) => {
@@ -336,36 +345,78 @@ export const WithdrawStock = () => {
     });
   };
 
-  const handleScanSubmit = async (event) => {
-    event.preventDefault();
-    const code = String(scanCode || '').replace(/\D/g, '');
-    setScanCode('');
+  // ใช้ร่วมกัน 3 ทาง: ช่องสแกน, เครื่องยิงบาร์โค้ด (คีย์บอร์ด), กล้องมือถือ
+  const processScanCode = async (rawCode) => {
+    const code = String(rawCode || '').replace(/\D/g, '');
     if (!code) return;
-    if (scannedStickers.some((entry) => entry.code === code)) {
+    if (pendingCodesRef.current.has(code)
+      || scannedStickersRef.current.some((entry) => entry.code === code)) {
       setScanMessage({ tone: 'warn', text: 'ดวงนี้สแกนแล้ว' });
       return;
     }
+    pendingCodesRef.current.add(code);
     try {
       setScanBusy(true);
       const response = await withdrawAPI.getSticker(code);
       const sticker = response?.data;
-      const product = products.find((row) => Number(row.id) === Number(sticker?.product_id));
+      const product = productsRef.current.find((row) => Number(row.id) === Number(sticker?.product_id));
       if (!product) {
         setScanMessage({ tone: 'error', text: `${sticker?.product_name || 'สินค้านี้'} เบิกจากแผนกนี้ไม่ได้` });
         return;
       }
       const quantity = Number(sticker.quantity_per_sticker) > 0 ? Number(sticker.quantity_per_sticker) : 1;
       addDraftQuantity(product, quantity);
-      setScannedStickers((prev) => [...prev, { code, product_id: Number(product.id) }]);
+      scannedStickersRef.current = [...scannedStickersRef.current, { code, product_id: Number(product.id) }];
       const unit = product.unit_abbr || product.unit_name || '';
       setScanMessage({ tone: 'ok', text: `+${quantity} ${unit} ${product.name}`.replace(/\s+/g, ' ') });
     } catch (error) {
       setScanMessage({ tone: 'error', text: error.response?.data?.message || 'สแกนไม่สำเร็จ' });
     } finally {
+      pendingCodesRef.current.delete(code);
       setScanBusy(false);
-      scanInputRef.current?.focus();
     }
   };
+  const processScanCodeRef = useRef(null);
+  useEffect(() => {
+    processScanCodeRef.current = processScanCode;
+    productsRef.current = products;
+  });
+
+  const handleScanSubmit = async (event) => {
+    event.preventDefault();
+    const code = scanCode;
+    setScanCode('');
+    await processScanCode(code);
+    if (!isTouchDevice) scanInputRef.current?.focus();
+  };
+
+  // เครื่องยิงบาร์โค้ด (USB/Bluetooth) พิมพ์ตัวเลขรัว ๆ แล้วกด Enter: รับได้แม้ไม่ได้แตะช่องสแกน
+  useEffect(() => {
+    if (activeTab !== 'create') return undefined;
+    let buffer = '';
+    let lastAt = 0;
+    const onKeyDown = (event) => {
+      const target = event.target;
+      if (target === scanInputRef.current) return;
+      const tag = String(target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+      const now = Date.now();
+      if (now - lastAt > 100) buffer = '';
+      lastAt = now;
+      if (event.key === 'Enter') {
+        const code = buffer;
+        buffer = '';
+        if (code.length === 12) {
+          event.preventDefault();
+          processScanCodeRef.current?.(code);
+        }
+        return;
+      }
+      if (/^\d$/.test(event.key)) buffer += event.key;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeTab]);
 
   const saveWithdrawal = async () => {
     const targetId = Number(targetDepartmentId);
@@ -399,7 +450,7 @@ export const WithdrawStock = () => {
       alert(`บันทึกใบเบิกเรียบร้อย: ${withdrawalNo}`);
 
       setDraftItems([]);
-      setScannedStickers([]);
+      scannedStickersRef.current = [];
       setScanMessage(null);
       setDocumentNote('');
       setIsDraftModalOpen(false);
@@ -530,20 +581,34 @@ export const WithdrawStock = () => {
 
             <Card>
               <h2 className="text-lg font-semibold text-gray-900">เพิ่มรายการสินค้า</h2>
-              <form className="mt-3" onSubmit={handleScanSubmit}>
+              <form className="mt-3 flex gap-2" onSubmit={handleScanSubmit}>
                 <input
                   ref={scanInputRef}
-                  className="w-full border-2 border-blue-400 rounded-lg px-3 py-3 text-lg tracking-wider focus:border-blue-600 focus:outline-none"
+                  className="min-w-0 flex-1 border-2 border-blue-400 rounded-lg px-3 py-3 text-lg tracking-wider focus:border-blue-600 focus:outline-none"
                   placeholder="สแกนสติกเกอร์"
                   inputMode="numeric"
                   autoComplete="off"
-                  autoFocus
+                  autoFocus={!isTouchDevice}
                   value={scanCode}
                   onChange={(e) => setScanCode(e.target.value)}
                   readOnly={saving}
                   aria-busy={scanBusy}
                   aria-label="สแกนสติกเกอร์"
                 />
+                <button
+                  type="button"
+                  onClick={() => setIsCameraOpen(true)}
+                  className="shrink-0 rounded-lg bg-blue-600 px-4 text-white hover:bg-blue-700 flex items-center gap-2 font-semibold"
+                  aria-label="สแกนด้วยกล้อง"
+                >
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" strokeLinecap="round" />
+                    <path d="M7 12h10" strokeLinecap="round" />
+                  </svg>
+                  กล้อง
+                </button>
+              </form>
+              <div>
                 {scanMessage && (
                   <p
                     role="status"
@@ -558,7 +623,14 @@ export const WithdrawStock = () => {
                     {scanMessage.text}
                   </p>
                 )}
-              </form>
+              </div>
+              {isCameraOpen && (
+                <CameraScanner
+                  onClose={() => setIsCameraOpen(false)}
+                  onDetected={(code) => processScanCodeRef.current?.(code)}
+                  message={scanMessage}
+                />
+              )}
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">ค้นหาสินค้า</label>
                 <input

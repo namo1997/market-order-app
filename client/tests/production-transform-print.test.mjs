@@ -98,6 +98,25 @@ test('withdraw page scans stickers: +quantity per sticker, same sticker only onc
   assert.match(api, /\/withdraw\/sticker\//);
 });
 
+test('withdraw page also takes phone camera and keyboard-wedge scanners', () => {
+  const page = readFileSync(new URL('../src/pages/user/WithdrawStock.jsx', import.meta.url), 'utf8');
+  assert.match(page, /aria-label="สแกนด้วยกล้อง"/);
+  assert.match(page, /\{isCameraOpen && \(\s*<CameraScanner/);
+  // เครื่องยิงพิมพ์ตัวเลขรัว (ห่างกันไม่เกิน 100 ms) แล้ว Enter: รับ 12 หลักแม้ไม่ได้แตะช่องสแกน
+  assert.match(page, /window\.addEventListener\('keydown', onKeyDown\)/);
+  assert.match(page, /now - lastAt > 100/);
+  assert.match(page, /code\.length === 12/);
+  // ทั้งสามทางใช้ handler เดียว และกันดวงซ้ำระหว่างรอผล
+  assert.match(page, /pendingCodesRef\.current\.has\(code\)/);
+  const camera = readFileSync(new URL('../src/components/scan/CameraScanner.jsx', import.meta.url), 'utf8');
+  assert.match(camera, /'BarcodeDetector' in window/);
+  assert.match(camera, /import\('@zxing\/browser'\)/);
+  assert.match(camera, /BarcodeFormat\.CODE_128, BarcodeFormat\.QR_CODE/);
+  assert.match(camera, /facingMode: \{ ideal: 'environment' \}/);
+  assert.match(camera, /track\.stop\(\)/);
+  assert.match(camera, /playsInline/);
+});
+
 test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {
   const barcode = buildBarcodeSvg('731450600000', { maxWidthMm: 64, heightMm: 11 });
   assert.equal(barcode.moduleDots, 4);
