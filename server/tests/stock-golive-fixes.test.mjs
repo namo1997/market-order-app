@@ -13,6 +13,7 @@ import {
   recipeSaleKeyWithoutDepartment,
   recipeSaleReferencePrefixes
 } from '../src/utils/recipe-sale-sync.js';
+import { buildResetLabel, planResetPairs, resolveResetAt } from '../src/utils/stock-reset.js';
 
 const sale = (id, quantity) => ({ id, transaction_type: 'sale', reference_type: 'recipe_sale', quantity, balance_after: 0 });
 const initial = (id, target, quantity) => ({ id, transaction_type: 'initial', reference_type: 'manual', quantity, balance_after: target });
@@ -70,4 +71,29 @@ test('A7: เวลานับ = เวลากรอกครั้งแร�
   const sql = stockCheckCountedAtSql('sc2');
   assert.match(sql, /sc2\.created_at/);
   assert.doesNotMatch(sql, /updated_at/);
+});
+
+test('เริ่มใช้สต็อก: ตั้งยอดเป็น 0 — แถวรีเซ็ตเป็นยอดสัมบูรณ์ ขายย้อนเวลาก่อนรีเซ็ตไม่กระทบ', () => {
+  const reset = { id: 5, transaction_type: 'initial', reference_type: 'stock_reset', quantity: -40, balance_after: 0 };
+  const receive = { id: 6, transaction_type: 'receive', reference_type: 'order_receiving', quantity: 12, balance_after: 0 };
+  // ยอดเดิม 40 → รีเซ็ต 0 → รับ 12 = 12
+  assert.equal(reflowLedgerRows([{ ...sale(1, 40), transaction_type: 'receive' }, reset, receive]).balance, 12);
+  // ซิงค์ขายคืนนั้นแทรกบิลก่อนเวลารีเซ็ต → ยังเป็น 12
+  assert.equal(reflowLedgerRows([{ ...sale(1, 40), transaction_type: 'receive' }, sale(2, -7), reset, receive]).balance, 12);
+});
+
+test('เริ่มใช้สต็อก: เวลา/label/รายการคู่ที่จะรีเซ็ต', () => {
+  const now = Date.parse('2026-11-13T10:00:00Z');
+  assert.equal(resolveResetAt(undefined, now), '2026-11-13 10:00:00');
+  assert.equal(resolveResetAt('2026-11-13 09:30:00', now), '2026-11-13 09:30:00');
+  assert.throws(() => resolveResetAt('2026-11-14 00:00:00', now), /อนาคต/);
+  assert.throws(() => resolveResetAt('13/11/2026', now), /YYYY-MM-DD/);
+  assert.equal(buildResetLabel('2026-11-13 10:00:00'), 'go-live-zero:20261113100000');
+  const pairs = planResetPairs({
+    ledgerPairs: [{ product_id: 9, department_id: 2 }, { product_id: 3, department_id: 2 }, { product_id: 1, department_id: 1 }],
+    balanceRows: [{ product_id: 7, department_id: 1, quantity: '5.00' }, { product_id: 8, department_id: 1, quantity: '0.00' }],
+    donePairs: [{ product_id: 1, department_id: 1 }]
+  });
+  // ยอดค้างที่ไม่มีประวัติก็รีเซ็ต, ยอด 0 ที่ไม่มีประวัติข้าม, คู่ที่ทำแล้วข้าม, เรียงแผนกแล้วสินค้า
+  assert.deepEqual(pairs.map((p) => [p.departmentId, p.productId]), [[1, 7], [2, 3], [2, 9]]);
 });

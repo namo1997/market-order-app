@@ -58,6 +58,12 @@
 | A7 | สูง | `applyStockAdjustment` · `getStockVarianceReport` | เวลานับ = `updated_at` → แก้ยอดแล้วกดใช้ใหม่ ยอดขายระหว่างนั้นถูกลบล้าง | `created_at` บีบให้อยู่ในวันที่นับ (`resolveStockCheckCountedAtUtc` / `stockCheckCountedAtSql`) | fixed local |
 | B3 | กลาง | `createProductionTransform` | วันที่แปรรูปอนาคตได้ | 400 + `max` ในช่องวันที่ | fixed local |
 
+เปิดยอดวันแรก (เจ้าของเลือก 13 พ.ย. 2569: ตั้งเป็น 0 ก่อน) — ลำดับบน Production (ต้องขออนุมัติทุกขั้น):
+1. สำรองฐาน Production ลง SSD
+2. deploy branch ที่มี 4e885293 ตามขั้นตอนปล่อยปกติ (ฐาน `market/production-base`)
+3. `node scripts/reset-stock-balances-to-zero.mjs` (dry-run ดูจำนวนคู่/ยอดรวม) → `--apply --at "<เวลา UTC ที่ dry-run แสดง หรือเวลาที่ตกลง>"` → ผลต้องได้ `nonzero_without_later_rows: 0`
+4. หลังจากนี้ยอดเริ่มจาก 0: รับของบวก ขาย/แปรรูป/โอนออกลบ; นับสต็อกเมื่อพร้อมเพื่อให้ยอดตรงของจริง (สโตร์จะติดลบอีกจนกว่าจะมีขั้นตอนรับของเข้าสโตร์)
+
 ยังเปิด (จากรายงาน): B1 แก้ใบเบิกย้อนหลังลงเวลาปัจจุบัน, B2 ยกเลิกเอกสารรับแล้ว cron รับอัตโนมัติ, B4 ปัด 0.01, B5 รับ PO ไม่เช็ค is_countable, B6 ปัดแบ่งสัดส่วน, B7 ยกเลิกบิลขายหลังซิงค์, B8 realtime ไม่แปลงหน่วย, B9 สติกเกอร์ลำดับเกินจำนวนพิมพ์/แพ็คเปลี่ยนหลังพิมพ์, B10 deadlock, B11 bulk receive
 
 ### หน้าแปรรูป `/production/transform` (ตรวจ 2026-11-13, branch `market/transform-print-fix-20261113` ยังไม่ deploy)
