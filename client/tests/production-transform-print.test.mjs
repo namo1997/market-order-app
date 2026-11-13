@@ -90,7 +90,7 @@ test('withdraw page scans stickers: +quantity per sticker, same sticker only onc
   const page = readFileSync(new URL('../src/pages/user/WithdrawStock.jsx', import.meta.url), 'utf8');
   assert.match(page, /placeholder="สแกนสติกเกอร์"/);
   assert.match(page, /withdrawAPI\.getSticker\(code\)/);
-  assert.match(page, /ดวงนี้สแกนแล้ว/);
+  assert.match(page, /สแกนดวงนี้แล้ว/);
   assert.match(page, /sticker\.quantity_per_sticker/);
   // บวกจำนวนแบบ functional update กันสแกนรัวแล้วจำนวนหาย
   assert.match(page, /setDraftItems\(\(prev\) => \{\s*const existing = prev\.find/);
@@ -115,6 +115,36 @@ test('withdraw page also takes phone camera and keyboard-wedge scanners', () => 
   assert.match(camera, /facingMode: \{ ideal: 'environment' \}/);
   assert.match(camera, /track\.stop\(\)/);
   assert.match(camera, /playsInline/);
+});
+
+test('scan feedback: sound + vibration, toast above page, running summary', async () => {
+  const { SCAN_TONES, SCAN_VIBRATION } = await import('../src/components/scan/scanFeedback.js');
+  const { groupScannedStickers } = await import('../src/components/scan/scanResultUtils.js');
+  // เสียงแยกกันชัด: สำเร็จ = 2 เสียงสูง, ซ้ำ = 1 เสียงกลาง, ผิด = เสียงต่ำยาว
+  assert.equal(SCAN_TONES.ok.filter((step) => step.freq).length, 2);
+  assert.ok(SCAN_TONES.ok.every((step) => !step.freq || step.freq >= 1000));
+  assert.ok(SCAN_TONES.error[0].freq < 400 && SCAN_TONES.error[0].ms >= 300);
+  assert.ok(SCAN_VIBRATION.error.length > SCAN_VIBRATION.ok.length);
+  const groups = groupScannedStickers([
+    { product_id: 1, name: 'A', unit: 'ถุง', quantity: 1, at: 1 },
+    { product_id: 2, name: 'B', unit: 'กก.', quantity: 2.5, at: 2 },
+    { product_id: 1, name: 'A', unit: 'ถุง', quantity: 1, at: 3 }
+  ]);
+  assert.deepEqual(groups.map((g) => [g.name, g.quantity, g.stickers]), [['A', 2, 2], ['B', 2.5, 1]]);
+
+  const result = readFileSync(new URL('../src/components/scan/ScanResult.jsx', import.meta.url), 'utf8');
+  // portal ไป body กันโดนการ์ดที่มี transform ทับ
+  assert.match(result, /createPortal\(/);
+  assert.match(result, /aria-live="assertive"/);
+  const camera = readFileSync(new URL('../src/components/scan/CameraScanner.jsx', import.meta.url), 'utf8');
+  assert.match(camera, /return createPortal\(/);
+  assert.match(camera, /\{events\.length\} ดวง/);
+  assert.match(camera, /เสร็จ/);
+  const page = readFileSync(new URL('../src/pages/user/WithdrawStock.jsx', import.meta.url), 'utf8');
+  assert.match(page, /playScanFeedback\(tone\)/);
+  assert.match(page, /unlockScanAudio/);
+  assert.match(page, /<ScannedSummary events=\{scanEvents\} \/>/);
+  assert.match(page, /'ไม่พบสติกเกอร์'/);
 });
 
 test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {

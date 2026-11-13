@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ScanFlash, ScanResultCard, ScannedSummary } from './ScanResult';
 
 // สแกนบาร์โค้ด CODE128 / QR ด้วยกล้องมือถือ แบบต่อเนื่อง (สแกนหลายดวงได้โดยไม่ต้องปิด)
 // Chrome Android มี BarcodeDetector ในตัว → เร็วกว่า; iPhone/อื่น ๆ โหลด zxing เฉพาะตอนเปิดกล้อง
@@ -38,7 +40,7 @@ const cameraErrorText = (error) => {
 };
 
 // แสดงเมื่อ parent render เท่านั้น (เปิดกล้องตอน mount, ปิดกล้องตอน unmount)
-export const CameraScanner = ({ onClose, onDetected, message }) => {
+export const CameraScanner = ({ onClose, onDetected, result, events = [] }) => {
   const videoRef = useRef(null);
   const onDetectedRef = useRef(onDetected);
   const [status, setStatus] = useState('starting');
@@ -64,11 +66,6 @@ export const CameraScanner = ({ onClose, onDetected, message }) => {
       // ถือกล้องค้างที่ดวงเดิม: ไม่ส่งซ้ำ (จะได้ไม่ขึ้น "สแกนแล้ว" ทับผลเดิม) จนกว่าจะเห็นดวงอื่น
       if (code === last.code) return;
       last.code = code;
-      try {
-        navigator.vibrate?.(60);
-      } catch {
-        // iOS ไม่มี vibrate
-      }
       setFlash(true);
       clearTimeout(flashTimer);
       flashTimer = setTimeout(() => setFlash(false), 350);
@@ -144,13 +141,7 @@ export const CameraScanner = ({ onClose, onDetected, message }) => {
     };
   }, []);
 
-  const toneClass = message?.tone === 'ok'
-    ? 'bg-emerald-600'
-    : message?.tone === 'warn'
-      ? 'bg-amber-500'
-      : 'bg-red-600';
-
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[70] bg-black" role="dialog" aria-modal="true" aria-label="สแกนด้วยกล้อง">
       <video
         ref={videoRef}
@@ -159,32 +150,49 @@ export const CameraScanner = ({ onClose, onDetected, message }) => {
         muted
         autoPlay
       />
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      <ScanFlash result={result} />
+      <div className="pointer-events-none absolute inset-x-0 top-0 bottom-[42%] flex items-center justify-center">
         <div
-          className={`h-[38%] w-[82%] max-w-md rounded-2xl border-4 ${flash ? 'border-emerald-400' : 'border-white/80'} shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] transition-colors`}
+          className={`h-[62%] w-[84%] max-w-md rounded-2xl border-4 ${flash ? 'border-emerald-400' : 'border-white/90'} shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] transition-colors`}
         />
       </div>
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute right-4 top-[max(1rem,env(safe-area-inset-top))] flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-2xl text-white"
-        aria-label="ปิดกล้อง"
-      >
-        ✕
-      </button>
-      <div className="absolute inset-x-4 bottom-[max(1.5rem,env(safe-area-inset-bottom))] flex flex-col items-center gap-2">
+      <div className="absolute inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] flex items-center justify-between px-4">
+        <span className="rounded-full bg-black/60 px-4 py-2 text-lg font-bold text-white tabular-nums">
+          {events.length} ดวง
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-2xl text-white"
+          aria-label="ปิดกล้อง"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-black/75 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur">
         {status === 'error' && (
-          <p className="rounded-xl bg-red-600 px-4 py-3 text-center text-base font-semibold text-white">{errorText}</p>
+          <ScanResultCard result={{ id: 'camera-error', tone: 'error', title: errorText }} />
         )}
         {status === 'starting' && (
-          <p className="rounded-xl bg-black/60 px-4 py-2 text-sm text-white">กำลังเปิดกล้อง…</p>
+          <p className="py-3 text-center text-base text-white/80">กำลังเปิดกล้อง…</p>
         )}
-        {status === 'scanning' && message && (
-          <p role="status" className={`rounded-xl px-4 py-3 text-center text-base font-semibold text-white ${toneClass}`}>
-            {message.text}
-          </p>
+        {status === 'scanning' && (
+          result
+            ? <div key={result.id} className="scan-result-pop"><ScanResultCard result={result} /></div>
+            : <p className="py-3 text-center text-lg font-semibold text-white">ส่องบาร์โค้ดหรือ QR</p>
         )}
+        <div className="mt-3 max-h-[22vh] overflow-y-auto">
+          <ScannedSummary events={events} limit={4} dark />
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-3 w-full rounded-xl bg-white py-3.5 text-lg font-bold text-gray-900"
+        >
+          เสร็จ
+        </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

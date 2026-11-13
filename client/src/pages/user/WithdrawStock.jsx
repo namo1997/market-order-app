@@ -8,6 +8,8 @@ import { Modal } from '../../components/common/Modal';
 import { useAuth } from '../../contexts/AuthContext';
 import { withdrawAPI } from '../../api/withdraw';
 import { CameraScanner } from '../../components/scan/CameraScanner';
+import { ScanToast, ScannedSummary } from '../../components/scan/ScanResult';
+import { playScanFeedback, unlockScanAudio } from '../../components/scan/scanFeedback';
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -55,6 +57,9 @@ export const WithdrawStock = () => {
   const [scanBusy, setScanBusy] = useState(false);
   const [scanMessage, setScanMessage] = useState(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  // ดวงที่สแกนเข้าใบนี้ (ไว้แสดงสรุป): { code, product_id, name, unit, quantity, at }
+  const [scanEvents, setScanEvents] = useState([]);
+  const scanSeqRef = useRef(0);
   const scanInputRef = useRef(null);
   // ใช้ ref เพราะกล้อง/เครื่องยิงเรียก handler จาก closure เก่า และอาจสแกนรัวก่อน state อัปเดต
   const scannedStickersRef = useRef([]);
@@ -255,6 +260,7 @@ export const WithdrawStock = () => {
       );
       scannedStickersRef.current = scannedStickersRef.current
         .filter((entry) => Number(entry.product_id) !== productId);
+      setScanEvents(scannedStickersRef.current);
       return;
     }
 
@@ -319,6 +325,7 @@ export const WithdrawStock = () => {
     setDraftItems((prev) => prev.filter((item) => Number(item.product_id) !== Number(productId)));
     scannedStickersRef.current = scannedStickersRef.current
       .filter((entry) => Number(entry.product_id) !== Number(productId));
+    setScanEvents(scannedStickersRef.current);
   };
 
   const addDraftQuantity = (product, delta) => {
@@ -346,12 +353,20 @@ export const WithdrawStock = () => {
   };
 
   // ใช้ร่วมกัน 3 ทาง: ช่องสแกน, เครื่องยิงบาร์โค้ด (คีย์บอร์ด), กล้องมือถือ
+  const showScanResult = (tone, title, detail = '') => {
+    scanSeqRef.current += 1;
+    setScanMessage({ id: scanSeqRef.current, tone, title, detail });
+    playScanFeedback(tone);
+  };
+
+  const formatCode = (code) => code.replace(/(\d{4})(?=\d)/g, '$1 ');
+
   const processScanCode = async (rawCode) => {
     const code = String(rawCode || '').replace(/\D/g, '');
     if (!code) return;
-    if (pendingCodesRef.current.has(code)
-      || scannedStickersRef.current.some((entry) => entry.code === code)) {
-      setScanMessage({ tone: 'warn', text: 'ดวงนี้สแกนแล้ว' });
+    const already = scannedStickersRef.current.find((entry) => entry.code === code);
+    if (already || pendingCodesRef.current.has(code)) {
+      showScanResult('warn', 'สแกนดวงนี้แล้ว', already?.name || formatCode(code));
       return;
     }
     pendingCodesRef.current.add(code);
@@ -361,16 +376,27 @@ export const WithdrawStock = () => {
       const sticker = response?.data;
       const product = productsRef.current.find((row) => Number(row.id) === Number(sticker?.product_id));
       if (!product) {
-        setScanMessage({ tone: 'error', text: `${sticker?.product_name || 'สินค้านี้'} เบิกจากแผนกนี้ไม่ได้` });
+        showScanResult('error', 'เบิกจากแผนกนี้ไม่ได้', sticker?.product_name || formatCode(code));
         return;
       }
       const quantity = Number(sticker.quantity_per_sticker) > 0 ? Number(sticker.quantity_per_sticker) : 1;
-      addDraftQuantity(product, quantity);
-      scannedStickersRef.current = [...scannedStickersRef.current, { code, product_id: Number(product.id) }];
       const unit = product.unit_abbr || product.unit_name || '';
-      setScanMessage({ tone: 'ok', text: `+${quantity} ${unit} ${product.name}`.replace(/\s+/g, ' ') });
+      addDraftQuantity(product, quantity);
+      const entry = { code, product_id: Number(product.id), name: product.name, unit, quantity, at: Date.now() };
+      scannedStickersRef.current = [...scannedStickersRef.current, entry];
+      setScanEvents(scannedStickersRef.current);
+      const total = scannedStickersRef.current
+        .filter((row) => row.product_id === entry.product_id)
+        .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+      showScanResult('ok', product.name, `+${quantity} ${unit} · รวม ${Number(total.toFixed(4))} ${unit}`.trim());
     } catch (error) {
-      setScanMessage({ tone: 'error', text: error.response?.data?.message || 'สแกนไม่สำเร็จ' });
+      const status = error?.response?.status;
+      const title = status === 404
+        ? 'ไม่พบสติกเกอร์'
+        : status === 400
+          ? 'ไม่ใช่สติกเกอร์แปรรูป'
+          : (error?.response?.data?.message || 'สแกนไม่สำเร็จ');
+      showScanResult('error', title, formatCode(code));
     } finally {
       pendingCodesRef.current.delete(code);
       setScanBusy(false);
@@ -451,6 +477,7 @@ export const WithdrawStock = () => {
 
       setDraftItems([]);
       scannedStickersRef.current = [];
+      setScanEvents([]);
       setScanMessage(null);
       setDocumentNote('');
       setIsDraftModalOpen(false);
@@ -591,13 +618,17 @@ export const WithdrawStock = () => {
                   autoFocus={!isTouchDevice}
                   value={scanCode}
                   onChange={(e) => setScanCode(e.target.value)}
+                  onFocus={unlockScanAudio}
                   readOnly={saving}
                   aria-busy={scanBusy}
                   aria-label="สแกนสติกเกอร์"
                 />
                 <button
                   type="button"
-                  onClick={() => setIsCameraOpen(true)}
+                  onClick={() => {
+                    unlockScanAudio();
+                    setIsCameraOpen(true);
+                  }}
                   className="shrink-0 rounded-lg bg-blue-600 px-4 text-white hover:bg-blue-700 flex items-center gap-2 font-semibold"
                   aria-label="สแกนด้วยกล้อง"
                 >
@@ -608,27 +639,21 @@ export const WithdrawStock = () => {
                   กล้อง
                 </button>
               </form>
-              <div>
-                {scanMessage && (
-                  <p
-                    role="status"
-                    className={`mt-2 text-sm font-semibold ${
-                      scanMessage.tone === 'ok'
-                        ? 'text-emerald-700'
-                        : scanMessage.tone === 'warn'
-                          ? 'text-amber-700'
-                          : 'text-red-700'
-                    }`}
-                  >
-                    {scanMessage.text}
-                  </p>
-                )}
-              </div>
+              {scanEvents.length > 0 && (
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+                  <ScannedSummary events={scanEvents} />
+                </div>
+              )}
+              {!isCameraOpen && <ScanToast result={scanMessage} />}
               {isCameraOpen && (
                 <CameraScanner
-                  onClose={() => setIsCameraOpen(false)}
+                  onClose={() => {
+                    setIsCameraOpen(false);
+                    setScanMessage(null);
+                  }}
                   onDetected={(code) => processScanCodeRef.current?.(code)}
-                  message={scanMessage}
+                  result={scanMessage}
+                  events={scanEvents}
                 />
               )}
               <div className="mt-3">
