@@ -71,6 +71,25 @@ await recordCategoryLearningExample({ item: retaughtBefore, originalCategory: 'b
   categoryEditedAt: retaughtBefore.category_edited_at, reason: 'มีเลขอ้างอิงการโอนและชื่อธนาคาร จึงเป็นสลิป', aiResponse: 'เข้าใจแล้ว', approvedBy: 'learning-test' });
 assert.ok((await contextualIds()).includes(3), 'สอนรูปเดิมใหม่ ตัวอย่างต้องกลับมาใช้ได้');
 
+// 3c) ตัวอย่างที่อธิบายไว้มีเยอะจนเต็ม ต้องยังเหลือที่ให้การแก้ล่าสุด ไม่งั้น AI เห็นแต่ของเก่าค้าง
+for (let id = 100; id < 112; id += 1) {
+  seed(id, 'bill');
+  await correctAndTeach(id, 'other', `ตัวอย่างอธิบายเก่า ${id}`, `เข้าใจแล้ว ${id}`);
+}
+for (let id = 200; id < 205; id += 1) {
+  seed(id, 'other');
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  await correctAndTeach(id, 'bill');
+}
+const mixed = await listAiLearningExamples({ limit: 12 });
+const mixedIds = mixed.map((row) => JSON.parse(row.example_json).item_id);
+assert.equal(mixed.length, 12);
+assert.ok(mixed.filter((row) => /อธิบาย|เลขอ้างอิงการโอน/.test(String(row.review_note || ''))).length >= 8, 'ตัวอย่างที่อธิบายไว้ยังได้ที่ส่วนใหญ่');
+assert.ok(mixedIds.includes(204), 'การแก้ล่าสุดต้องถูกส่งให้ AI แม้ไม่มีคำอธิบาย');
+assert.ok(mixedIds.filter((id) => id >= 200).length >= 4, 'ต้องกันที่ให้การแก้ล่าสุดอย่างน้อย 1/3');
+assert.ok(/อธิบาย|เลขอ้างอิงการโอน/.test(String(mixed[0].review_note || '')), 'ตัวอย่างที่อธิบายไว้ยังอยู่ก่อน');
+await retireCategoryLearningExamples({ itemIds: [...Array.from({ length: 12 }, (_, i) => 100 + i), 200, 201, 202, 203, 204], retiredBy: 'learning-test', reason: 'ล้างตัวอย่างของเทสต์ 3c' });
+
 // การยกเลิกไม่สร้างตัวอย่างย้อนกลับ และคงแถวประวัติเดิมครบทุกค่า
 seed(4, 'bill');
 const approvedReason = 'เป็นภาพประกอบ ไม่ใช่เอกสารซื้อหรือการโอน';
@@ -125,7 +144,8 @@ for (const [id, corrected, reason, response] of [[7, 'bill', '', ''], [8, 'other
 db.prepare("UPDATE capture_items SET status='unsent' WHERE id=1").run();
 db.prepare("UPDATE capture_items SET status='duplicate' WHERE id=2").run();
 assert.deepEqual(await contextualIds(), [], 'รูปที่ยกเลิก/ซ้ำ และตัวอย่างที่หมดผลต้องไม่เข้า AI');
-assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ai_category_learning_examples').get().n, 6, 'เก็บประวัติทุกแถวโดยไม่ลบหรือ backfill');
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ai_category_learning_examples WHERE item_id < 100').get().n, 6, 'เก็บประวัติทุกแถวโดยไม่ลบหรือ backfill');
+assert.equal(db.prepare('SELECT COUNT(*) AS n FROM ai_category_learning_examples WHERE item_id >= 100').get().n, 17, 'ตัวอย่างของเทสต์ 3c ถูกถอน ไม่ถูกลบ');
 
 // 4) route ต้องส่งประเภทปลายทางจริงให้ AI ทวน ไม่ใช่ฝัง 'other' ไว้ตายตัว
 const serverSrc = await fs.readFile(new URL('../src/server.js', import.meta.url), 'utf8');

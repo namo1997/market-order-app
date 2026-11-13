@@ -4079,7 +4079,8 @@ export const listAiLearningExamples = async ({ limit = 20 } = {}) =>
     const legacyAutoReason = `'ผู้ใช้แก้ประเภทจาก ' || ${categoryLabelSql('ai_category_learning_examples.original_category')}
       || ' เป็น ' || ${categoryLabelSql('ai_category_learning_examples.corrected_category')} || ' โดยไม่ได้ระบุเหตุผล'`;
     const statement = database.prepare(
-      `SELECT outcome, review_note, example_json, approved_by, created_at
+      `SELECT outcome, review_note, example_json, approved_by, created_at, updated_at,
+         CASE WHEN ai_response IS NOT NULL AND trim(ai_response) <> '' THEN 1 ELSE 0 END AS explained
        FROM (
          SELECT id, outcome, review_note, example_json, approved_by, created_at, updated_at,
            review_note AS ai_response
@@ -4112,16 +4113,25 @@ export const listAiLearningExamples = async ({ limit = 20 } = {}) =>
                      AND ai_category_learning_examples.reason = (${legacyAutoReason}))))
              ))
        ) examples
-       ORDER BY CASE WHEN ai_response IS NOT NULL AND trim(ai_response) <> '' THEN 0 ELSE 1 END,
-                datetime(updated_at) DESC, id DESC
-       LIMIT ?`,
-      [clampLimit(limit, 20, 100)]
+       ORDER BY datetime(updated_at) DESC, id DESC
+       LIMIT 1000`
     );
+    let rows;
     try {
-      return allRows(statement);
+      rows = allRows(statement);
     } finally {
       statement.free();
     }
+    // ตัวอย่างที่คนอธิบายไว้ยังมาก่อน แต่กันที่ 1/3 ให้การแก้ล่าสุด (แม้ไม่ได้อธิบาย)
+    // ไม่งั้นถ้าช่วงหลังไม่มีใครพิมพ์คำอธิบาย AI จะเห็นแต่ตัวอย่างเก่าค้างตลอดไป (เคยค้างที่ ก.ย. 69)
+    const max = clampLimit(limit, 20, 100);
+    const explainedQuota = Math.ceil(max * 2 / 3);
+    const picked = new Set(rows.filter((row) => Number(row.explained) === 1).slice(0, explainedQuota));
+    for (const row of rows) { if (picked.size >= max) break; picked.add(row); }
+    return [...picked]
+      .sort((left, right) => Number(right.explained) - Number(left.explained)
+        || String(right.updated_at || '').localeCompare(String(left.updated_at || '')))
+      .map(({ explained, updated_at, ...row }) => row);
   });
 
 const CATEGORY_LABELS = {

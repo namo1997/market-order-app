@@ -225,6 +225,10 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   (2026-11-13: items 2781, 2748, 2365, 546 taught "cash bill = other", so transferred cash bills
   for dried shrimp/longan were dropped). `retireCategoryLearningExamples()` never deletes rows or
   changes the source image; re-teaching that image clears the retirement.
+  `listAiLearningExamples({ limit: 12 })` keeps explained examples first but caps them at 2/3 of
+  the slots; the rest are the most recent corrections even without an explanation. Before
+  2026-11-13 explained-only ordering froze the prompt on September 2026 examples because nobody
+  typed explanations afterwards.
 - **`capture_daily_closings`** — per (business_date, source_id) daily close record + summary snapshot.
   Snapshot version 5 stores incoming transfers, their count, and their total separately from
   expense/payment reconciliation. Reports show income but never net it against expenses.
