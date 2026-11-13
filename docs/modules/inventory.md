@@ -45,6 +45,16 @@
 | INV-09 | ต่ำ | `getTransactions` / `getProductStockCard` ORDER BY | เรียงด้วย `effective_at` ที่ผสมเวลาไทย (recipe_sale) กับ UTC (อื่น ๆ) ลำดับในหน้า movement/stock card จึงเหลื่อม 7 ชม. ระหว่างชนิดรายการ | open |
 | INV-10 | กลาง | ข้อมูลเดิมใน production | ตรวจบนสำเนา 2026-10-07: stock_check 57/1,775 แถว `balance_after` ≠ ยอดนับ (19 แถวเป็นแถวล่าสุดของการนับ); reflow ใหม่เปลี่ยนยอด 20 คู่ ส่วนใหญ่เป็นการแก้ตัดซ้ำจาก INV-01 | ใช้ `balance_after` ต่อ (ต่างจากใช้ยอดนับแค่ 2 คู่); ตอน deploy รัน `scripts/reflow-stock-ledger-absolute.mjs` (dry-run แล้ว `--apply`) ครั้งเดียว; ปิดสคริปต์ reflow เก่า | fixed (reflow รันแล้ว 2026-10-07) |
 
+### หน้าแปรรูป `/production/transform` (ตรวจ 2026-11-13, branch `market/transform-print-fix-20261113` ยังไม่ deploy)
+| รหัส | ระดับ | ตำแหน่ง | อาการ | สถานะ |
+|---|---|---|---|---|
+| PRD-01 | สูง | `ProductionTransform.jsx` วันที่ตั้งต้น | `toISOString()` (UTC) ทำให้ก่อน 07:00 น. วันที่แปรรูป/วันที่ประวัติตั้งต้นเป็นเมื่อวาน → รับสินค้าเข้าวันผิดถ้าไม่ได้เปลี่ยนเอง | fixed local: ใช้ `bangkokDate()` |
+| PRD-02 | สูง | `ProductionTransform.jsx` `handleSubmit` | บันทึกทีละรายการ ถ้าพังกลางทาง รายการก่อนหน้าบันทึกแล้วแต่ฟอร์มไม่ล้าง กดซ้ำ = รับเข้าซ้ำ | fixed local: ตัดรายการที่บันทึกแล้วออก แจ้งรายการที่พัง |
+| PRD-03 | กลาง | `transformStickerPrint.js` `extractYmd` | สติกเกอร์จากแท็บประวัติของที่ทำ 00:00–07:00 น.: ล็อต/บาร์โค้ด/QR เป็นวันก่อนหน้า แต่ "วันที่ผลิต" เป็นวันไทย | fixed local: แปลงเป็นวันไทย |
+| PRD-04 | กลาง | `transformStickerPrint.js` `printTransformStickers` | สั่ง `close()` ทันทีหลัง `print()` มือถือ/แท็บเล็ตงานพิมพ์หายหรือได้หน้าว่าง | fixed local: ปิดเองเฉพาะคอมหลัง `afterprint`, มือถือมีปุ่ม พิมพ์/ปิด |
+| PRD-05 | ต่ำ | `ProductionTransform.jsx` | การ์ดสินค้าแสดงแค่ 120 รายการแรก ไม่มีข้อความบอกว่ามีอีก (ต้องค้นหา) | open |
+| PRD-06 | ต่ำ | `transformStickerPrint.js` `getStickerCopies` | จำนวนดวง = จำนวนเต็มที่ผลิต ไม่ดูหน่วย (10 กก. = 10 ดวง, 2.5 กก. = 1 ดวง) ทุกดวงใช้ล็อตเดียวกัน | open (รอเจ้าของยืนยันว่าตั้งใจ) |
+
 ## จุดเชื่อมระบบอื่น
 - `ordering`/`receiving`, `store-po`, `withdraw`: เขียน ledger ผ่าน `createTransaction` หรือ SQL ของตัวเอง (ณ เวลาปัจจุบัน)
 - `stock-check`: ต้นทางยอดนับ (`stock_checks`) และ safety gate ก่อน apply (ต้องมี recipe_sale ของวันนั้นหรือผ่าน ClickHouse)

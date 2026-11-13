@@ -501,6 +501,7 @@
       ],
       "client": [
         "client/src/pages/production/ProductionTransform.jsx",
+        "client/src/pages/production/transformStickerPrint.js",
         "client/src/pages/admin/masters/RecipeManagement.jsx",
         "client/src/pages/admin/masters/ProductionTransformRecipeSettings.jsx",
         "client/src/pages/production/ProductionUsageUnitTab.jsx"
