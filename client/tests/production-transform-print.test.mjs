@@ -93,6 +93,8 @@ test('transform page prints on the real 72x50 mm label (landscape)', () => {
   assert.match(html, /size: 72mm 50mm !important;/);
   assert.match(html, /width: 72mm !important;/);
   assert.match(html, /height: 50mm !important;/);
+  // ขอบข้าง 4 มม. เผื่อเครื่องพิมพ์วางภาพเลื่อน ~2 มม.
+  assert.match(html, /padding: 2\.2mm 4mm;/);
   assert.match(buildTransformStickerHtml([label], { layout: '3x2' }), /size: 3in 2in !important;/);
   assert.match(buildTransformStickerHtml([label], { layout: 'unknown' }), /size: 72mm 50mm !important;/);
   const page = readFileSync(new URL('../src/pages/production/ProductionTransform.jsx', import.meta.url), 'utf8');

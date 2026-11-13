@@ -162,7 +162,8 @@ const STICKER_LAYOUTS = {
   '72x50': {
     pageWidth: '72mm',
     pageHeight: '50mm',
-    padding: '2.2mm',
+    // ขอบข้าง 4 มม.: พิมพ์จริงกับ LABEL 9X00 แล้วภาพเลื่อนข้างหนึ่ง ~2 มม. (ขอบ 2.2 มม. ตัวหนังสือโดนตัด)
+    padding: '2.2mm 4mm',
     gap: '0.9mm',
     productFont: '14px',
     productMinHeight: '9.5mm',
