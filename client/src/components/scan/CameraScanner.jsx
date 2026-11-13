@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ScanFlash, ScanResultCard, ScannedSummary } from './ScanResult';
+import { createScanGate, isPointsCentered, pickCenteredCode } from './cameraScanGate';
 
 // สแกนบาร์โค้ด CODE128 / QR ด้วยกล้องมือถือ แบบต่อเนื่อง (สแกนหลายดวงได้โดยไม่ต้องปิด)
 // Chrome Android มี BarcodeDetector ในตัว → เร็วกว่า; iPhone/อื่น ๆ โหลด zxing เฉพาะตอนเปิดกล้อง
@@ -58,14 +59,13 @@ export const CameraScanner = ({ onClose, onDetected, result, events = [] }) => {
     let zxingControls = null;
     let timer = null;
     let flashTimer = null;
-    const last = { code: '' };
+    // ดวงที่ยังอยู่ในภาพไม่ส่งซ้ำ + เว้นระยะระหว่างผล (สติกเกอร์เป็นม้วน เห็นหลายดวงพร้อมกัน)
+    const gate = createScanGate();
 
     const emit = (rawValue) => {
       const code = String(rawValue || '').trim();
       if (!code || stopped) return;
-      // ถือกล้องค้างที่ดวงเดิม: ไม่ส่งซ้ำ (จะได้ไม่ขึ้น "สแกนแล้ว" ทับผลเดิม) จนกว่าจะเห็นดวงอื่น
-      if (code === last.code) return;
-      last.code = code;
+      if (!gate(code)) return;
       setFlash(true);
       clearTimeout(flashTimer);
       flashTimer = setTimeout(() => setFlash(false), 350);
@@ -90,7 +90,9 @@ export const CameraScanner = ({ onClose, onDetected, result, events = [] }) => {
           try {
             if (video.readyState >= 2) {
               const results = await native.detect(video);
-              results.forEach((result) => emit(result.rawValue));
+              // หลายดวงในภาพ → เอาดวงกลางภาพดวงเดียว
+              const code = pickCenteredCode(results, video.videoWidth, video.videoHeight);
+              if (code) emit(code);
             }
           } catch {
             // เฟรมเสีย ข้ามไปเฟรมถัดไป
@@ -115,7 +117,10 @@ export const CameraScanner = ({ onClose, onDetected, result, events = [] }) => {
         { video: VIDEO_CONSTRAINTS, audio: false },
         video,
         (result) => {
-          if (result) emit(result.getText());
+          if (!result) return;
+          const points = (result.getResultPoints?.() || []).map((point) => ({ x: point.getX(), y: point.getY() }));
+          if (!isPointsCentered(points, video.videoWidth, video.videoHeight)) return;
+          emit(result.getText());
         }
       );
       if (stopped) {

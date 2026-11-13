@@ -167,6 +167,41 @@ test('packing page: per-branch list, scan feedback per outcome, stable line orde
   assert.match(api, /\/production\/packing\/branches\/\$\{branchId\}\/scan/);
 });
 
+test('camera gate: stickers still in view are not re-sent, two stickers do not ping-pong', async () => {
+  const { createScanGate, pickCenteredCode, isPointsCentered } = await import('../src/components/scan/cameraScanGate.js');
+  let t = 0;
+  const gate = createScanGate({ holdMs: 2500, minGapMs: 900, now: () => t });
+  const sent = [];
+  // ม้วนสติกเกอร์: เห็น A กับ B สลับกันทุก 120 ms นาน 5 วิ
+  for (t = 0; t <= 5000; t += 120) {
+    for (const code of (Math.round(t / 120) % 2 ? ['B', 'A'] : ['A', 'B'])) {
+      if (gate(code)) sent.push([code, t]);
+    }
+  }
+  assert.deepEqual(sent.map(([code]) => code), ['A', 'B']);
+  assert.ok(sent[1][1] - sent[0][1] >= 900);
+  // หายจากภาพเกิน 2.5 วิ แล้วกลับมา → ส่งใหม่ได้ (ให้ระบบเตือน "สแกนดวงนี้แล้ว" ครั้งเดียว)
+  t = 9000;
+  assert.equal(gate('A'), true);
+  assert.equal(gate('A'), false);
+
+  const frame = [1280, 720];
+  const results = [
+    { rawValue: 'EDGE', boundingBox: { x: 0, y: 300, width: 120, height: 60 } },
+    { rawValue: 'NEAR', boundingBox: { x: 500, y: 320, width: 200, height: 60 } },
+    { rawValue: 'MID', boundingBox: { x: 560, y: 330, width: 160, height: 60 } }
+  ];
+  assert.equal(pickCenteredCode(results, ...frame), 'MID');
+  assert.equal(pickCenteredCode([results[0]], ...frame), null);
+  assert.equal(isPointsCentered([{ x: 10, y: 10 }, { x: 60, y: 20 }], ...frame), false);
+  assert.equal(isPointsCentered([{ x: 600, y: 350 }, { x: 700, y: 360 }], ...frame), true);
+
+  const camera = readFileSync(new URL('../src/components/scan/CameraScanner.jsx', import.meta.url), 'utf8');
+  assert.match(camera, /if \(!gate\(code\)\) return;/);
+  assert.match(camera, /pickCenteredCode\(results, video\.videoWidth, video\.videoHeight\)/);
+  assert.doesNotMatch(camera, /results\.forEach\(/);
+});
+
 test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {
   const barcode = buildBarcodeSvg('731450600000', { maxWidthMm: 64, heightMm: 11 });
   assert.equal(barcode.moduleDots, 4);
