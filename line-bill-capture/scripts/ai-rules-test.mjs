@@ -67,6 +67,11 @@ const actualMarketSheet = {
   evidence: []
 };
 assert(isDailyMarketSheetVisual(actualMarketSheet), 'Daily market sheet structure must be recognized');
+// หัวฟอร์มใบตลาดจริงพิมพ์ "รับมา / ใช้ไป / โอนเพิ่ม" โดยไม่มีข้อความแชทติดมา (#6340, #6410 พ.ย. 69)
+const printedFormSheet = { category: 'bill', raw_text: 'วันที่ 2/11/2569 ตลาดสด รวม 64 รายการ หน้า 1/1; รับมา 30,000; ใช้ไป 15,789; โอนเพิ่ม 14,211', evidence: [] };
+assert(isDailyMarketSheetVisual(printedFormSheet), 'Printed market form labels must be recognized');
+const printedFormMarket = applyDeterministicChatRules(printedFormSheet, [{ text: 'ตลาด 2/11/69 รับ  30,000.- จ่าย 15,789.- ทอน 14,211.- เงินในบัญชีขาดเกิน  +3 โอนเพิ่ม 15,786.- นะคะ' }]);
+assert(printedFormMarket.bill_total_value === 15789 && printedFormMarket.announced_amount === 15786, 'Printed market form must use the adjusted transfer amount');
 const correctedActualMarket = applyDeterministicChatRules(actualMarketSheet, marketChat);
 assert(correctedActualMarket.bill_total_value === 8975, '11 July market sheet must use the spend amount');
 assert(correctedActualMarket.announced_amount === 8949, '11 July market sheet must use the adjusted transfer amount');

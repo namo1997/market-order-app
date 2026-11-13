@@ -655,8 +655,9 @@ export const isDailyMarketSheetVisual = (analysis = {}) => {
   }
   const hasMarketIdentity = /ตลาดสด|บิลตลาด|รายการซื้อของตลาด|ใบสรุป(?:ยอด)?(?:ซื้อของ)?ตลาด|สรุปยอดเงินตลาด|ยอดเงินตลาด/i.test(visualText)
     || /ตลาด\s*(?:วันที่|\d{1,2}\s*\/\s*\d{1,2})/i.test(visualText);
-  const hasCashControl = /รับ\s*[0-9][0-9,.]*/i.test(visualText)
-    && /จ่าย\s*[0-9][0-9,.]*/i.test(visualText)
+  // หัวฟอร์มใบตลาดพิมพ์ว่า "รับมา / ใช้ไป / โอนเพิ่ม" ส่วนข้อความแชทใช้ "รับ / จ่าย / ทอน"
+  const hasCashControl = /รับ(?:มา)?\s*[0-9][0-9,.]*/i.test(visualText)
+    && /(?:จ่าย|ใช้ไป)\s*[0-9][0-9,.]*/i.test(visualText)
     && /ทอน|ขาดเกิน|โอนเพิ่ม/i.test(visualText);
   const hasMarketTable = /รวม\s*\d+\s*รายการ/i.test(visualText)
     && /รายการสินค้า|ตาราง|สินค้า/i.test(visualText);
@@ -1907,6 +1908,9 @@ export const autoLinkAdvanceReimbursements = async (config = getAiConfig()) => {
 const isMarketSheet = (bill) => {
   const purpose = String(bill?.bill_purpose || '').trim();
   if (/^บิลตลาด/.test(purpose) || /^ตลาด$/.test(purpose) || /ตลาดสด/.test(purpose)) return true;
+  // ใบตลาดจริงมี "ตลาดสด รวม N รายการ" บนรูป แม้ AI จะตั้งชื่อเป็น "ตลาด 2/11/69 ..." (ต้องตรงกับ isMarketBill ใน db.js)
+  const raw = String(bill?.ai_raw_text || bill?.raw_text || '');
+  if (!bill?.bill_total_edited_at && /ตลาดสด/.test(raw) && /รวม\s*\d+\s*รายการ/.test(raw) && !/makro|แม็คโคร|cp\s*axtra|ใบกำกับภาษี|tax\s*invoice|ใบส่งของ/i.test(raw)) return true;
   return /ซื้อของตลาด|รายการซื้อของตลาด|ของตลาดวันที่|ตลาดสด/.test(String(bill?.ai_summary || ''));
 };
 

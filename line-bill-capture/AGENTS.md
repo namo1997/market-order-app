@@ -221,6 +221,10 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   moved to `other`, the AI reviews the image plus the typed reason, acknowledges a concrete rule,
   or asks one clarification question when the reason is vague. Accepted examples are injected into
   later vision prompts alongside pair examples; this is in-context learning, not model fine-tuning.
+  `retired_at` / `retired_by` / `retired_reason` retire an example that taught the wrong lesson
+  (2026-11-13: items 2781, 2748, 2365, 546 taught "cash bill = other", so transferred cash bills
+  for dried shrimp/longan were dropped). `retireCategoryLearningExamples()` never deletes rows or
+  changes the source image; re-teaching that image clears the retirement.
 - **`capture_daily_closings`** — per (business_date, source_id) daily close record + summary snapshot.
   Snapshot version 5 stores incoming transfers, their count, and their total separately from
   expense/payment reconciliation. Reports show income but never net it against expenses.
@@ -619,6 +623,13 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   model named only `ตลาด`, which silently disabled the entire market path (adjustment + matching),
   so `isMarketSheet()` in `ai-worker.js` also accepts `ตลาด` / `ตลาดสด` and a market-sounding
   `ai_summary`. Keep both the prompt rule and that tolerant check in sync.
+  Some readers copy the chat line into `bill_purpose` (`ตลาด 2/11/69 รับ 30,000.- …`), so
+  `isMarketBill()` (db.js), `isMarketSheet()` (ai-worker.js) and `marketBill` (public/index.html)
+  also treat a bill as a market sheet when its image text has `ตลาดสด` + `รวม N รายการ` and no
+  Makro/tax-invoice/delivery-note words — but only while `bill_total_edited_at` is empty, so
+  human-fixed amounts are never swapped for `announced_amount`. Do not key this on the AI title:
+  bills photographed next to a market sheet (e.g. Makro #5496) can inherit its chat text.
+  `isDailyMarketSheetVisual()` accepts the printed form labels `รับมา` / `ใช้ไป` as well as `รับ` / `จ่าย`.
   `applyDeterministicChatRules()` also corrects a visually market-like image that vision labels
   as `other` when its nearby same-sender message contains `ตลาด`, `จ่าย`, and `โอนเพิ่ม`. It stores
   `จ่าย` as the bill total and `โอนเพิ่ม` as the slip-facing `announced_amount`; this rule is

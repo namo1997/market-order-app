@@ -15,7 +15,7 @@ assert.ok(process.env.SOLAO_LOCAL_SIMULATION === '1' && os.tmpdir().startsWith('
 const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lbc-learn-'));
 process.env.CAPTURE_DATA_DIR = dataDir;
 
-const { initDatabase, recordCategoryLearningExample, listAiLearningExamples, getItemById, updateCategory } = await import('../src/db.js');
+const { initDatabase, recordCategoryLearningExample, listAiLearningExamples, getItemById, updateCategory, retireCategoryLearningExamples } = await import('../src/db.js');
 await initDatabase();
 
 const db = new DatabaseSync(path.join(dataDir, 'line-bill-capture.sqlite'));
@@ -60,6 +60,16 @@ const examples = await listAiLearningExamples({ limit: 12 });
 assert.equal(examples.length, 3, 'ต้องเก็บครบทั้งสามตัวอย่าง');
 const explainedIndex = examples.findIndex((row) => /เลขอ้างอิงการโอน/.test(String(row.review_note || '')));
 assert.equal(explainedIndex, 0, 'ตัวอย่างที่คนอธิบายไว้ต้องถูกดึงมาก่อน');
+
+// 3b) ถอนตัวอย่างที่สอนผิดได้ โดยรูปต้นทางยังเป็นประเภทเดิม และสอนใหม่แล้วกลับมาใช้ได้
+assert.equal((await retireCategoryLearningExamples({ itemIds: [3], retiredBy: 'learning-test' })).error, 'item_ids_and_reason_required');
+assert.deepEqual((await retireCategoryLearningExamples({ itemIds: [3, 999], retiredBy: 'learning-test', reason: 'สอนผิดทาง' })), { retired: [3], missing: [999] });
+assert.ok(!(await contextualIds()).includes(3), 'ตัวอย่างที่ถอนแล้วต้องไม่ถูกส่งให้ AI');
+assert.equal((await getItemById(3)).category, 'transfer', 'การถอนตัวอย่างต้องไม่เปลี่ยนประเภทของรูป');
+const retaughtBefore = await getItemById(3);
+await recordCategoryLearningExample({ item: retaughtBefore, originalCategory: 'bill', correctedCategory: 'transfer',
+  categoryEditedAt: retaughtBefore.category_edited_at, reason: 'มีเลขอ้างอิงการโอนและชื่อธนาคาร จึงเป็นสลิป', aiResponse: 'เข้าใจแล้ว', approvedBy: 'learning-test' });
+assert.ok((await contextualIds()).includes(3), 'สอนรูปเดิมใหม่ ตัวอย่างต้องกลับมาใช้ได้');
 
 // การยกเลิกไม่สร้างตัวอย่างย้อนกลับ และคงแถวประวัติเดิมครบทุกค่า
 seed(4, 'bill');

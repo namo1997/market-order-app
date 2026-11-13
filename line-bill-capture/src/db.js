@@ -594,6 +594,10 @@ const ensureSchema = () => {
   addColumnIfMissing(db, 'capture_matches', 'ai_learning_approved', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing(db, 'capture_matches', 'reviewed_by', 'TEXT');
   addColumnIfMissing(db, 'capture_matches', 'reviewed_at', 'TEXT');
+  // ถอนตัวอย่างสอน AI ที่ทำให้ตัดสินผิด โดยไม่ลบแถวและไม่ต้องย้อนประเภทของรูปต้นทาง
+  addColumnIfMissing(db, 'ai_category_learning_examples', 'retired_at', 'TEXT');
+  addColumnIfMissing(db, 'ai_category_learning_examples', 'retired_by', 'TEXT');
+  addColumnIfMissing(db, 'ai_category_learning_examples', 'retired_reason', 'TEXT');
   // One transaction may contain several bills and/or several transfer slips.
   // Rows sharing this key are presented and reviewed as one aggregate match.
   addColumnIfMissing(db, 'capture_matches', 'match_group_key', 'TEXT');
@@ -2209,6 +2213,12 @@ const SLIP_CATEGORIES = new Set(['transfer', 'transfer_notice']);
 const isMarketBill = (item) => {
   const purpose = String(item?.bill_purpose || '').trim();
   if (/^บิลตลาด/.test(purpose) || /^ตลาด$/.test(purpose) || /ตลาดสด/.test(purpose)) return true;
+  // ตัวอ่านบางรุ่นคัดข้อความแชท "ตลาด 2/11/69 รับ ..." มาเป็น bill_purpose แทน "บิลตลาด ..."
+  // ดูจากข้อความบนรูปแทน (ใบตลาดจริงมี "ตลาดสด รวม N รายการ") ไม่ดูชื่อที่ AI ตั้ง
+  // เพราะบิลอื่นที่ส่งใกล้ ๆ ใบตลาดก็โดนข้อความแชทตลาดปนมาได้ (เช่น #5496 บิลแม็คโคร)
+  // บิลที่คนแก้ยอดเองแล้ว (bill_total_edited_at) ใช้ตัวเลขของคน ไม่สลับไปใช้ยอดแจ้งย้อนหลัง
+  const raw = String(item?.ai_raw_text || '');
+  if (!item?.bill_total_edited_at && /ตลาดสด/.test(raw) && /รวม\s*\d+\s*รายการ/.test(raw) && !/makro|แม็คโคร|cp\s*axtra|ใบกำกับภาษี|tax\s*invoice|ใบส่งของ/i.test(raw)) return true;
   // Older analyses called the daily market sheet a closing summary and left
   // bill_purpose empty. Keep recognizing those rows so the deterministic chat
   // repair can recover their payable and transfer amounts on startup.
@@ -4034,6 +4044,31 @@ export const listNearbyConversation = async ({ sourceType, sourceId, centerMs, w
     }
   });
 
+// ถอนตัวอย่างแก้ประเภทที่สอน AI ผิดทาง (เช่น "บิลเงินสด = อื่น ๆ") ตัวอย่างกลับมาใช้ได้เมื่อมีคนสอนรูปนั้นใหม่
+export const retireCategoryLearningExamples = async ({ itemIds = [], retiredBy = 'admin-web', reason = '' } = {}) =>
+  runWrite((database) => {
+    const ids = [...new Set(itemIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+    const why = String(reason || '').trim().slice(0, 1000);
+    if (!ids.length || !why) return { error: 'item_ids_and_reason_required' };
+    const now = nowIso();
+    database.run(
+      `UPDATE ai_category_learning_examples
+       SET retired_at = ?, retired_by = ?, retired_reason = ?, updated_at = updated_at
+       WHERE item_id IN (${ids.map(() => '?').join(', ')}) AND retired_at IS NULL`,
+      [now, String(retiredBy || 'admin-web'), why, ...ids]
+    );
+    const statement = database.prepare(
+      `SELECT item_id, retired_at FROM ai_category_learning_examples WHERE item_id IN (${ids.map(() => '?').join(', ')})`,
+      ids
+    );
+    try {
+      const rows = allRows(statement);
+      return { retired: rows.filter((row) => row.retired_at).map((row) => Number(row.item_id)), missing: ids.filter((id) => !rows.some((row) => Number(row.item_id) === id)) };
+    } finally {
+      statement.free();
+    }
+  });
+
 export const listAiLearningExamples = async ({ limit = 20 } = {}) =>
   runRead((database) => {
     const categoryLabelSql = (column) => `CASE ${column} ${Object.entries(CATEGORY_LABELS)
@@ -4059,7 +4094,8 @@ export const listAiLearningExamples = async ({ limit = 20 } = {}) =>
          SELECT id, 'category_correction' AS outcome, reason AS review_note,
            example_json, approved_by, created_at, updated_at, ai_response
          FROM ai_category_learning_examples
-         WHERE EXISTS (SELECT 1 FROM capture_items active_category_item
+         WHERE ai_category_learning_examples.retired_at IS NULL
+           AND EXISTS (SELECT 1 FROM capture_items active_category_item
            WHERE active_category_item.id = ai_category_learning_examples.item_id
              AND active_category_item.status NOT IN ('unsent', 'duplicate')
              AND active_category_item.category = ai_category_learning_examples.corrected_category
@@ -4154,7 +4190,8 @@ export const recordCategoryLearningExample = async ({
          ai_response = excluded.ai_response,
          example_json = excluded.example_json,
          approved_by = excluded.approved_by,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at,
+         retired_at = NULL, retired_by = NULL, retired_reason = NULL`,
       [itemId, String(originalCategory || ''), String(correctedCategory || ''), fallbackNote,
         response, normalizeJson(example), approvedBy, now, now]
     );
