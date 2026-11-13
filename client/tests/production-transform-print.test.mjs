@@ -236,6 +236,11 @@ test('pack size: stickers per pack with the remainder on the last, same formula 
   assert.match(page, /\.\.\.packFieldsFor\(item\.product_id\)/);
   assert.match(page, /\.\.\.packFieldsFor\(row\.product_id\)/);
   assert.match(page, /ตั้งค่าแพ็ค/);
+  // สินค้าที่ยังไม่ตั้งแพ็ค ไม่เติม "ถุง" ให้ แสดงแค่ปุ่ม "ตั้งแพ็ค"
+  const tab = readFileSync(new URL('../src/pages/production/ProductionPackSizeTab.jsx', import.meta.url), 'utf8');
+  assert.match(tab, /useState\(pack\?\.pack_unit_label \|\| ''\)/);
+  assert.match(tab, /useState\(Boolean\(pack\)\)/);
+  assert.match(tab, />\s*ตั้งแพ็ค\s*</);
 });
 
 test('barcode bars are whole printer dots (4 dots = 0.5 mm) with quiet zones', () => {
