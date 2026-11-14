@@ -55,6 +55,52 @@ const writeStatus = async (status) => {
     await settingsModel.setSetting(SALES_SYNC_STATUS_KEY, JSON.stringify(status));
 };
 
+// เขียนสถานะไม่สำเร็จต้องไม่ทำให้การตัดสต็อกที่ commit แล้วถูกนับว่าล้ม (เคยทำให้ retry 14 ครั้ง/วัน)
+const writeStatusSafely = async (status) => {
+    try {
+        await writeStatus(status);
+        return true;
+    } catch (error) {
+        console.error('[Cron] Sales sync status write failed:', error?.message || error);
+        return false;
+    }
+};
+
+// ผลซิงค์เต็มมีรายการเมนูไม่มีสูตรเป็นพันแถว เกิน TEXT 64KB ของ system_settings → เก็บแค่ตัวเลขสรุป
+const MAX_STATUS_SAMPLES = 5;
+export const summarizeSyncResult = (result) => {
+    // controller ตอบ { success, data: {...} } → สรุปจาก data
+    const raw = result && typeof result === 'object' ? result : {};
+    const data = raw.data && typeof raw.data === 'object' ? raw.data : raw;
+    const count = (value) => (Array.isArray(value) ? value.length : 0);
+    const number = (value) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const sampleNames = (list) =>
+        Array.from(
+            new Set(
+                (Array.isArray(list) ? list : [])
+                    .map((row) => String(row?.name || row?.menu_name || row?.product_name || '').trim().slice(0, 60))
+                    .filter(Boolean)
+            )
+        ).slice(0, MAX_STATUS_SAMPLES);
+    return {
+        start: data.start ?? null,
+        end: data.end ?? null,
+        planned_deductions: number(data.planned_deductions),
+        applied_deductions: number(data.applied_deductions),
+        applied_quantity: number(data.applied_quantity),
+        skipped_existing: number(data.skipped_existing),
+        skipped_legacy_daily: number(data.skipped_legacy_daily),
+        unresolved_count: count(data.unresolved_items),
+        missing_recipes_count: count(data.missing_recipes),
+        missing_recipe_samples: sampleNames(data.missing_recipes),
+        missing_conversions_count: count(data.missing_conversions),
+        missing_branch_mapping_count: count(data.missing_branch_mapping)
+    };
+};
+
 const runSyncForDate = async ({ dateString, userId, source }) => {
     return new Promise((resolve, reject) => {
         let settled = false;
@@ -137,6 +183,22 @@ const buildStatusBase = ({
     last_result: lastResult
 });
 
+// ถ้าเขียนสถานะสำเร็จแบบมีสรุปไม่ได้ ลองเขียนสถานะสำเร็จแบบสั้นที่สุดอีกครั้ง
+// (สต็อกถูกตัดแล้ว ห้ามปล่อยให้สถานะค้าง pending จน retry ซ้ำ)
+const writeMinimalSuccessStatus = async ({ targetDate, source }) =>
+    writeStatusSafely(
+        buildStatusBase({
+            state: 'success',
+            targetDate,
+            source,
+            message: `ตัดสต็อกขายอัตโนมัติสำเร็จ (${source}) — บันทึกสรุปผลไม่ได้`,
+            failureCount: 0,
+            lastError: null,
+            lastResult: null,
+            nextRetryAt: null
+        })
+    );
+
 const salesSyncInFlight = new Map();
 const attemptSalesSync = ({ targetDate, ...options }) => {
     const current = salesSyncInFlight.get(targetDate);
@@ -165,7 +227,7 @@ const runSalesSyncAttempt = async (attempt) => {
             userId,
             source
         });
-        await writeStatus(
+        await writeStatusSafely(
             buildStatusBase({
                 state: 'success',
                 targetDate,
@@ -173,10 +235,10 @@ const runSalesSyncAttempt = async (attempt) => {
                 message: `ตัดสต็อกขายอัตโนมัติสำเร็จ (${source})`,
                 failureCount: 0,
                 lastError: null,
-                lastResult: result,
+                lastResult: summarizeSyncResult(result),
                 nextRetryAt: null
             })
-        );
+        ) || (await writeMinimalSuccessStatus({ targetDate, source }));
         return { success: true, result };
     } catch (error) {
         const { finalizeOnFail = false } = attempt;
@@ -185,7 +247,7 @@ const runSalesSyncAttempt = async (attempt) => {
         const nextRetryAt = finalizeOnFail
             ? null
             : `อีก 30 นาที (จนถึง 06:00 ${SALES_SYNC_TIMEZONE})`;
-        await writeStatus(
+        await writeStatusSafely(
             buildStatusBase({
                 state: statusState,
                 targetDate,

@@ -551,7 +551,8 @@
         "server/tests/hrms-sales-product-catalog.test.mjs",
         "server/tests/sales-report-work.test.mjs",
         "client/tests/sales-report.browser.mjs",
-        "server/tests/sales-report-dates.test.mjs"
+        "server/tests/sales-report-dates.test.mjs",
+        "server/tests/sales-sync-status.test.mjs"
       ],
       "note": "ClickHouse อ่านอย่างเดียว ห้ามเขียน; วันที่/ชั่วโมงใช้ toTimeZone Asia/Bangkok (server tz ไทยแล้ว) ห้าม addHours",
       "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
