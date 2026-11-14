@@ -1,4 +1,5 @@
 import * as groupSql from '../../src/models/receiving-group-sql.js';
+import * as deadlockRetry from '../../src/utils/deadlock-retry.js';
 import * as voidPolicy from '../../src/models/receiving-void-policy.js';
 import * as notifyPolicy from '../../src/services/receiving-notify-policy.js';
 import * as branchOcr from '../../src/models/receiving-branch-ocr.js';
@@ -1722,6 +1723,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/receiving-followups-store.js')) return synthetic({ saveFollowup: (_db, args) => saveQueueFollowup(args) });
       if (specifier.endsWith('/bangkok-date.js')) return synthetic(testDate ? { ...bangkokDate, getBangkokDateKey: () => testDate } : bangkokDate);
       if (specifier.endsWith('/order-input.js')) return synthetic(orderInputMod);
+      if (specifier.endsWith('/deadlock-retry.js')) return synthetic(deadlockRetry);
       if (specifier.endsWith('/inventory.model.js')) {
         return synthetic({
           ensureInventoryTables: async () => {},

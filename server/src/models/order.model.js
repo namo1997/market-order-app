@@ -10,6 +10,7 @@ import {
   getMappedSourceDepartmentByProductGroup
 } from './supplier.model.js';
 import { ensureWithdrawSourceMappingTable } from './withdraw-source-mapping.model.js';
+import { withDeadlockRetry } from '../utils/deadlock-retry.js';
 
 export const ensureOrderTransferColumns = async () => {
   const columns = [
@@ -1671,7 +1672,7 @@ export const createPurchaseWalkMirrorForManualReceiving = async ({
   return Number(result.insertId);
 };
 
-export const createManualReceivingItem = async ({
+const createManualReceivingItemOnce = async ({
   date,
   userId,
   productId,
@@ -1788,6 +1789,9 @@ export const createManualReceivingItem = async ({
     connection.release();
   }
 };
+
+export const createManualReceivingItem = (args) =>
+  withDeadlockRetry(() => createManualReceivingItemOnce(args), { label: 'createManualReceivingItem' });
 
 // บันทึกรับของแบบรวมสินค้า (branch scope) และแบ่งสัดส่วนไปยัง order_items ทั้งหมด
 const updateReceivingItemsBranch = async (items, userId, options = {}) => {
@@ -2075,7 +2079,7 @@ const isAfterAutoReceiveCutoff = (now = new Date()) => {
   );
 };
 
-export const autoReceivePendingItemsForNextDay = async ({
+const autoReceivePendingItemsForNextDayOnce = async ({
   date,
   scope = 'mine',
   userId = null,
@@ -2220,7 +2224,11 @@ ${confirmedReceiptFilter}
   }
 };
 
-export const updateReceivingItems = async (items, userId, options = {}) => {
+// deadlock: ลองทั้งก้อนใหม่ (connection/transaction ใหม่ อ่านแถวใหม่) ดู utils/deadlock-retry.js
+export const autoReceivePendingItemsForNextDay = (args) =>
+  withDeadlockRetry(() => autoReceivePendingItemsForNextDayOnce(args), { label: 'autoReceivePendingItemsForNextDay' });
+
+const updateReceivingItemsOnce = async (items, userId, options = {}) => {
   if (!Array.isArray(items) || items.length === 0) throw orderInputError('items is required');
   for (const item of items) {
     if (!item) throw orderInputError('Invalid receiving item');
@@ -2325,7 +2333,13 @@ export const updateReceivingItems = async (items, userId, options = {}) => {
   }
 };
 
-export const bulkReceiveByDepartments = async (date, departmentIds = [], userId) => {
+// ครอบทั้ง scope mine และ branch (updateReceivingItemsBranch) ที่ชั้นนี้ชั้นเดียว ไม่ซ้อน retry
+// ทุกรอบ rollback เต็มแล้วอ่าน received_quantity ใหม่ FOR UPDATE จึงคิด delta สต็อกใหม่ ไม่ลงซ้ำ
+// แจ้งเตือน/response อยู่ที่ controller หลังฟังก์ชันนี้คืนค่า จึงเกิดครั้งเดียวหลังรอบที่สำเร็จ
+export const updateReceivingItems = (items, userId, options = {}) =>
+  withDeadlockRetry(() => updateReceivingItemsOnce(items, userId, options), { label: 'updateReceivingItems' });
+
+const bulkReceiveByDepartmentsOnce = async (date, departmentIds = [], userId) => {
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
   const normalizedIds = (departmentIds || [])
@@ -2374,6 +2388,9 @@ export const bulkReceiveByDepartments = async (date, departmentIds = [], userId)
     connection.release();
   }
 };
+
+export const bulkReceiveByDepartments = (date, departmentIds = [], userId) =>
+  withDeadlockRetry(() => bulkReceiveByDepartmentsOnce(date, departmentIds, userId), { label: 'bulkReceiveByDepartments' });
 
 const ensureProductionPrintLogsTable = async () => {
   await pool.query(

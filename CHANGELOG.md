@@ -11,6 +11,14 @@
 - เทสต์: `server/tests/sales-sync-status.test.mjs` (จำลองคอลัมน์ TEXT 64KB, เขียนสถานะพลาด, ซิงค์ล้มจริง) ผ่าน fastcheck `sync-status-fix` (log บน SSD `reports/fastcheck/sync-status-fix/`)
 - ยังค้าง: deploy (รอเจ้าของอนุมัติ); สถานะเดิมใน Production จะถูกเขียนทับเองเมื่อซิงค์รอบถัดไปสำเร็จ
 
+## 2026-11-14 — บันทึกรับของ (หน้าเดิม) ตอบ 500 เพราะ MySQL deadlock (ORD-10) — สถานะ: **Local (branch `market/receiving-deadlock-retry-20261114`) ยังไม่ deploy**
+
+- อาการ (log Production `0d66235c`): `PUT /api/orders/receiving` ตอบ 500 `ER_LOCK_DEADLOCK` 3 ครั้งใน 10 วัน (7 พ.ย. 09:51, 10 พ.ย. 10:52 และ 19:03) ที่ SELECT … FOR UPDATE ใน `updateOrderItemReceivingWithInventory` ผู้ใช้ต้องกดบันทึกซ้ำ
+- เพิ่ม `server/src/utils/deadlock-retry.js`: ลองทั้ง transaction ใหม่เมื่อเจอ 1213 สูงสุด 3 รอบ รอสั้นแบบสุ่ม (~20–60 / 40–120 ms) error อื่นโยนทันที ครบรอบแล้วโยน deadlock ตัวสุดท้าย; ไม่รวม lock wait timeout (1205) เพราะรอรอบละ ~50 วินาทีและไม่ใช่วงล็อก
+- ครอบที่ขอบ export ของ `order.model.js` (ชื่อเดิม ภายในเปลี่ยนเป็น `…Once`): `updateReceivingItems` (ทั้ง mine และ branch), `autoReceivePendingItemsForNextDay` (cron), `bulkReceiveByDepartments`, `createManualReceivingItem` — ทุกรอบขอ connection ใหม่ BEGIN อ่านแถวใหม่ FOR UPDATE และ rollback เต็มก่อนลองใหม่ จึงคิด delta สต็อกใหม่ไม่ลงซ้ำ; แจ้งเตือนรับของ/response อยู่ที่ controller หลังสำเร็จครั้งเดียว ไม่ได้แก้ `updateOrderItemReceivingWithInventory` และ controller
+- ยังไม่แก้ต้นเหตุลำดับล็อก (SELECT ที่ join หลายตารางล็อก products/branches ด้วย และวนตามลำดับใน request) และยังไม่ครอบ confirm/void ของเอกสารรับสินค้าใหม่ (`receiving-documents-settlement.js`)
+- เทสต์ SSD: fastcheck `receiving-deadlock` เต็ม 2 รอบ (ผล/ log: `/Volumes/SSD Files/SOLAO/market-order-system/reports/fastcheck/receiving-deadlock/`); เทสต์ใหม่ `server/tests/receiving-deadlock-retry.test.mjs` (helper + controller→model จริงบนฐานจำลอง: deadlock รอบแรกแล้วสำเร็จ = commit 1 ครั้ง ลงสต็อกครั้งเดียว แจ้งเตือน 1 ครั้ง); ไม่ได้ทดสอบกับ MySQL จริง
+
 ## 2026-11-10 — หน้ายอดขาย (/sales-dashboard) ยอดรายวันไม่ตรงแอป POS — สถานะ: **Local (branch `market/sales-dashboard-tz-20261110`) ยังไม่ deploy**
 
 - สาเหตุหลัก: ClickHouse POS ตั้ง timezone เป็น Asia/Bangkok อยู่แล้ว แต่รายงานใช้ `toDate(addHours(docdatetime, 7))` บิลหลัง 17:00 จึงไปตกวันถัดไป ต.ค. 2569 ผิดทุกวันทั้งสองสาขา (สันกำแพงทั้งเดือน −10,643.40, คันคลอง −32,714.30) และกราฟรายชั่วโมงขึ้น 17:00–04:00

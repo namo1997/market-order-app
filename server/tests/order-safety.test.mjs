@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { randomUUID } from 'node:crypto';
 import * as orderInput from '../src/utils/order-input.js';
+import * as deadlockRetry from '../src/utils/deadlock-retry.js';
 
 // Run the actual modules with isolated SQL/notification dependencies. No env,
 // database or network is loaded, and unrecognized SQL fails the test.
@@ -80,6 +81,7 @@ async function orderHarness(items = [row()], extra = {}) {
     if (specifier.endsWith('/receiving-group-sql.js')) return receivingGroupSql;
     if (specifier === 'node:crypto') return { randomUUID };
     if (specifier.endsWith('/order-input.js')) return orderInput;
+    if (specifier.endsWith('/deadlock-retry.js')) return deadlockRetry;
     if (specifier.endsWith('/database.js')) return { default: { query, getConnection: async () => connection } };
     if (specifier.endsWith('/inventory.model.js')) return { ensureInventoryTables: noop, lockBalanceRow };
     if (specifier.endsWith('/supplier.model.js')) return {
