@@ -2,16 +2,26 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
-## 2026-11-14 — ตัดสต็อกขายอัตโนมัติสำเร็จแต่ขึ้น "ไม่สำเร็จ" ทุกเช้า (INV-11) — สถานะ: **Local (branch `market/sales-sync-status-fix-20261114` จาก `market/production-base` 0d66235c) ยังไม่ deploy**
+## 2026-11-14 — ปล่อย Production: INV-11 + ORD-10 — สถานะ: **Production (deployment `0bf9f79f-9c3b-4ae4-a69f-3ea0ccdf01ee`, commit `9516b460`)**
+
+- รวม `market/sales-sync-status-fix-20261114` (`3d790ad0`) และ `market/receiving-deadlock-retry-20261114` (`90efe54e`) บน `market/integration-20261114` จากฐาน `0d66235c`; conflict เดียวคือ CHANGELOG (เก็บทั้งสองหัวข้อ)
+- เทสต์ SSD หลังรวม: fastcheck `market-integration-20261114` เต็ม 2 รอบ server 742/742, client 857/857, pilot 55/55 (`FASTCHECK OK 9516b460`)
+- สำรองก่อนปล่อย: `/Volumes/SSD Files/SOLAO/market-order-system/backups/pre-release-market-20261114T0707Z/` (dump เต็ม schema `railway`, มี manifest; ยังไม่ทดสอบ restore) รอบนี้ไม่มีการเปลี่ยน schema
+- ปล่อยด้วย `railway up` จาก worktree สะอาด 14 พ.ย. 2569 14:16 น.; predeploy 45/45; ตรวจ sha256 ไฟล์ runtime 5 ไฟล์ (`syncJob.js`, `deadlock-retry.js`, `order.model.js`, `orders.controller.js`, `server.js`) ตรง commit; `/health/db` 200, ไม่มี 5xx/error log หลังขึ้น
+- ยังไม่ยืนยันด้วยงานจริง: INV-11 ต้องรอรอบตัดสต็อก 23:30 น. คืนนี้ (สถานะควรเป็น `success` และไม่มี retry); ORD-10 จะเห็นผลเมื่อเกิด deadlock ครั้งถัดไป (ดู log `[deadlock retry]`)
+- เจ้าของสั่งปิดแจ้งเตือนรับของขาด/เกิน (Discord webhook ตายตั้งแต่ 26 มี.ค. 2569): ล้าง `system_settings.discord_receiving_webhook_url` ใน Production 14 พ.ย. 13:42 น. ไม่ได้ลบโค้ด
+- ข้อควรระวัง: Railway แจ้งว่า `railway.json` (healthcheck/preDeployCommand) จะเลิกใช้ 1 ธ.ค. 2569 ต้องย้ายเป็น `.railway/railway.ts` ก่อนวันนั้น
+
+## 2026-11-14 — ตัดสต็อกขายอัตโนมัติสำเร็จแต่ขึ้น "ไม่สำเร็จ" ทุกเช้า (INV-11) — สถานะ: **Production 14 พ.ย. 2569 (deployment `0bf9f79f`, commit รวม `9516b460`; เดิม branch `market/sales-sync-status-fix-20261114` จาก `market/production-base` 0d66235c)**
 
 - สาเหตุ: `server/src/cron/syncJob.js` เก็บผลซิงค์ทั้งก้อน (`last_result` มีเมนูไม่มีสูตรเป็นพันแถว) ลง `system_settings.setting_value` (TEXT 64KB) ใน try เดียวกับการตัดสต็อก ตั้งแต่ 4 พ.ย. 2569 เกินขนาด → `ER_DATA_TOO_LONG` → บันทึกเป็น `pending` → retry ทุก 30 นาทีถึง 06:00 (รวม 14 รอบ/คืน) และเช้าขึ้น `failed_window` `failure_count: 14` ทั้งที่ตัดสต็อกถูกแล้ว (sync ข้าม `reference_id` ที่มีแล้ว จึงไม่ตัดซ้ำ)
 - แก้: เก็บเฉพาะสรุป (`summarizeSyncResult`: ตัวเลข + ชื่อเมนูไม่มีสูตรไม่เกิน 5 ชื่อ ชื่อละไม่เกิน 60 ตัวอักษร) และเขียนสถานะผ่าน `writeStatusSafely` ที่ไม่โยน error; ถ้าเขียนสถานะสำเร็จไม่ได้ ลองเขียนสถานะ success แบบไม่มีสรุปอีกครั้ง และยังถือว่าซิงค์สำเร็จ ไม่ retry; ซิงค์ล้มจริงยังเป็น `pending` / `failed_window` เหมือนเดิม
 - ยกโค้ดจากชุด A2 ของ commit `4e885293` (ยังไม่ปล่อย) แบบตรงตัว ยกเว้นรอบ catch-up 01:15 ซึ่งเป็นงานแยก ไม่รวมในงานนี้
 - ผู้อ่านสถานะ: `inventory.controller.js` ส่งต่อ `sales_sync_status` ให้ `InventoryDashboard.jsx` ซึ่งอ่านแค่ `state` / `target_date` ไม่มีใครอ่าน `last_result` จึงไม่กระทบ
 - เทสต์: `server/tests/sales-sync-status.test.mjs` (จำลองคอลัมน์ TEXT 64KB, เขียนสถานะพลาด, ซิงค์ล้มจริง) ผ่าน fastcheck `sync-status-fix` (log บน SSD `reports/fastcheck/sync-status-fix/`)
-- ยังค้าง: deploy (รอเจ้าของอนุมัติ); สถานะเดิมใน Production จะถูกเขียนทับเองเมื่อซิงค์รอบถัดไปสำเร็จ
+- ปล่อยแล้ว 14 พ.ย. 2569 (ดูหัวข้อปล่อย Production ด้านบน); สถานะเดิมใน Production จะถูกเขียนทับเองเมื่อซิงค์รอบถัดไปสำเร็จ
 
-## 2026-11-14 — บันทึกรับของ (หน้าเดิม) ตอบ 500 เพราะ MySQL deadlock (ORD-10) — สถานะ: **Local (branch `market/receiving-deadlock-retry-20261114`) ยังไม่ deploy**
+## 2026-11-14 — บันทึกรับของ (หน้าเดิม) ตอบ 500 เพราะ MySQL deadlock (ORD-10) — สถานะ: **Production 14 พ.ย. 2569 (deployment `0bf9f79f`, commit รวม `9516b460`; เดิม branch `market/receiving-deadlock-retry-20261114`)**
 
 - อาการ (log Production `0d66235c`): `PUT /api/orders/receiving` ตอบ 500 `ER_LOCK_DEADLOCK` 3 ครั้งใน 10 วัน (7 พ.ย. 09:51, 10 พ.ย. 10:52 และ 19:03) ที่ SELECT … FOR UPDATE ใน `updateOrderItemReceivingWithInventory` ผู้ใช้ต้องกดบันทึกซ้ำ
 - เพิ่ม `server/src/utils/deadlock-retry.js`: ลองทั้ง transaction ใหม่เมื่อเจอ 1213 สูงสุด 3 รอบ รอสั้นแบบสุ่ม (~20–60 / 40–120 ms) error อื่นโยนทันที ครบรอบแล้วโยน deadlock ตัวสุดท้าย; ไม่รวม lock wait timeout (1205) เพราะรอรอบละ ~50 วินาทีและไม่ใช่วงล็อก
