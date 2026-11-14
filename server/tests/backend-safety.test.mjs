@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { randomUUID } from 'node:crypto';
 import * as lineLogin from '../src/utils/line-login.js';
 import * as orderInput from '../src/utils/order-input.js';
+import * as deadlockRetry from '../src/utils/deadlock-retry.js';
 import * as receivingGroupSql from '../src/models/receiving-group-sql.js';
 import { lockBalanceRow } from '../src/models/inventory-balance-lock.js';
 import { buildBangkokDateRangeSql } from '../src/utils/stock-ledger.js';
@@ -82,6 +83,7 @@ async function orderModel(pool) {
   return load('../src/models/order.model.js', {
     'node:crypto': { randomUUID },
     '../utils/order-input.js': orderInput,
+    '../utils/deadlock-retry.js': deadlockRetry,
     './receiving-group-sql.js': receivingGroupSql,
     '../config/database.js': { default: pool },
     './inventory.model.js': { ensureInventoryTables: async () => {}, lockBalanceRow },

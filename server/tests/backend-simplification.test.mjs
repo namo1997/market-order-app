@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID, createHash } from 'node:crypto';
 import express from 'express';
 import * as orderInput from '../src/utils/order-input.js';
+import * as deadlockRetry from '../src/utils/deadlock-retry.js';
 import * as groupSql from '../src/models/receiving-group-sql.js';
 
 async function load(relativePath, dependencies = {}, globals = {}) {
@@ -24,7 +25,7 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 
 async function loadOrderModel(pool) {
   return load('../src/models/order.model.js', {
-    'node:crypto': { randomUUID }, '../utils/order-input.js': orderInput,
+    'node:crypto': { randomUUID }, '../utils/order-input.js': orderInput, '../utils/deadlock-retry.js': deadlockRetry,
     './receiving-group-sql.js': groupSql, '../config/database.js': { default: pool },
     './inventory.model.js': { ensureInventoryTables: async () => {}, lockBalanceRow: async () => {} },
     './supplier.model.js': Object.fromEntries(['ensureSupplierColumns', 'ensureProductGroupWithdrawSourceTable', 'ensureSupplierScopeTable', 'getMappedSourceDepartmentByProductGroup'].map((key) => [key, async () => {}])),
