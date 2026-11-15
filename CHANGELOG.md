@@ -8,7 +8,7 @@
 - เทสต์ SSD หลังรวม: fastcheck `market-integration-20261114` เต็ม 2 รอบ server 742/742, client 857/857, pilot 55/55 (`FASTCHECK OK 9516b460`)
 - สำรองก่อนปล่อย: `/Volumes/SSD Files/SOLAO/market-order-system/backups/pre-release-market-20261114T0707Z/` (dump เต็ม schema `railway`, มี manifest; ยังไม่ทดสอบ restore) รอบนี้ไม่มีการเปลี่ยน schema
 - ปล่อยด้วย `railway up` จาก worktree สะอาด 14 พ.ย. 2569 14:16 น.; predeploy 45/45; ตรวจ sha256 ไฟล์ runtime 5 ไฟล์ (`syncJob.js`, `deadlock-retry.js`, `order.model.js`, `orders.controller.js`, `server.js`) ตรง commit; `/health/db` 200, ไม่มี 5xx/error log หลังขึ้น
-- ยังไม่ยืนยันด้วยงานจริง: INV-11 ต้องรอรอบตัดสต็อก 23:30 น. คืนนี้ (สถานะควรเป็น `success` และไม่มี retry); ORD-10 จะเห็นผลเมื่อเกิด deadlock ครั้งถัดไป (ดู log `[deadlock retry]`)
+- ยืนยัน INV-11 แล้ว (ตรวจ 15 พ.ย. 2569): รอบ 23:30 น. 14 พ.ย. รันครั้งเดียว สถานะ `success` (643 ตัวอักษร, ตัด 192 รายการ), ไม่มี retry/`Sales sync failed`; ไม่มี 5xx ตั้งแต่ปล่อย; บันทึกรับของ 221 ครั้งไม่มีแจ้งเตือนล้มเหลว. ยังไม่ยืนยันด้วยงานจริง: ORD-10 จะเห็นผลเมื่อเกิด deadlock ครั้งถัดไป (ดู log `[deadlock retry]`)
 - เจ้าของสั่งปิดแจ้งเตือนรับของขาด/เกิน (Discord webhook ตายตั้งแต่ 26 มี.ค. 2569): ล้าง `system_settings.discord_receiving_webhook_url` ใน Production 14 พ.ย. 13:42 น. ไม่ได้ลบโค้ด
 - ข้อควรระวัง: Railway แจ้งว่า `railway.json` (healthcheck/preDeployCommand) จะเลิกใช้ 1 ธ.ค. 2569 ต้องย้ายเป็น `.railway/railway.ts` ก่อนวันนั้น
 
