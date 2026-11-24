@@ -50,16 +50,16 @@
 
 | id | ระดับ | ตำแหน่ง | ปัญหา | การแก้ | สถานะ |
 |---|---|---|---|---|---|
-| A1 | สูง | `inventory.model.js` `createProductionTransform` · `ProductionTransform.jsx` | ตัดวัตถุดิบผิดหน่วยไม่มีด่านกัน (น้ำปลา -134,729 แกลลอน, น้ำส้มสายชู -1,200 แกลลอน) | เกินยอดที่มี → 409 `INGREDIENT_OVER_STOCK` + รายละเอียด/หน่วย ไม่บันทึก; ผู้ใช้ยืนยันแล้วส่ง `confirm_over_stock: true` | fixed local |
-| A2 | สูง | `cron/syncJob.js` | เก็บผลซิงค์ทั้งก้อนเกิน TEXT → ซิงค์สำเร็จแต่ถูกนับว่าล้ม retry ทั้งคืน | เก็บสรุป, เขียนสถานะพลาดไม่ล้ม, รอบ catch-up 01:15 เก็บบิล 23:30–24:00 | fixed local |
-| A3 | สูง | `recipe.controller.js` `syncUsageToInventory` | ซิงค์พร้อมกันตัดบิลซ้ำได้ (เช็คด้วย SELECT ธรรมดา, index ไม่ unique) | `GET_LOCK` ต่อฐานก่อน transaction | fixed local |
-| A4 | สูง | `order.model.js` `updateOrderItemReceivingWithInventory` | แก้/ยกเลิกรับของลงแผนกปัจจุบันของคนสั่ง ไม่ใช่แผนกที่รับจริง (265 รายการในข้อมูลจริง) | ย้อนตามแถว `order_receiving` แรก (ปลายทาง/ต้นทางเดิม); ไม่เคยลงสต็อก + ลดจำนวน → ไม่ลงอะไร | fixed local |
-| A5 | สูง | `stock-ledger.js` `reflowLedgerRows` · `setInitialBalance` | ยอดตั้งต้นเป็นส่วนต่าง รายการย้อนเวลาแทรกแล้วยอดเพี้ยน | แถว `initial` เป็นยอดสัมบูรณ์ + reflow หลังตั้ง | fixed local |
-| A6 | สูง | `recipe.controller.js` | แผนกที่ตัดขาย = id น้อยสุดที่เคยนับ → เปลี่ยนเมื่อแผนกอื่นเริ่มนับ และซิงค์ซ้ำตัดซ้ำจากแผนกใหม่ | แผนกที่ผูกก่อน (`MIN(id)` ของรายการนับ) + เช็คบิลซ้ำแบบไม่ดูแผนก | fixed local |
-| A7 | สูง | `applyStockAdjustment` · `getStockVarianceReport` | เวลานับ = `updated_at` → แก้ยอดแล้วกดใช้ใหม่ ยอดขายระหว่างนั้นถูกลบล้าง | `created_at` บีบให้อยู่ในวันที่นับ (`resolveStockCheckCountedAtUtc` / `stockCheckCountedAtSql`) | fixed local |
-| B3 | กลาง | `createProductionTransform` | วันที่แปรรูปอนาคตได้ | 400 + `max` ในช่องวันที่ | fixed local |
+| A1 | สูง | `inventory.model.js` `createProductionTransform` · `ProductionTransform.jsx` | ตัดวัตถุดิบผิดหน่วยไม่มีด่านกัน (น้ำปลา -134,729 แกลลอน, น้ำส้มสายชู -1,200 แกลลอน) | เกินยอดที่มี → 409 `INGREDIENT_OVER_STOCK` + รายละเอียด/หน่วย ไม่บันทึก; ผู้ใช้ยืนยันแล้วส่ง `confirm_over_stock: true` | fixed (deploy `5c439cba`) |
+| A2 | สูง | `cron/syncJob.js` | เก็บผลซิงค์ทั้งก้อนเกิน TEXT → ซิงค์สำเร็จแต่ถูกนับว่าล้ม retry ทั้งคืน | เก็บสรุป, เขียนสถานะพลาดไม่ล้ม, รอบ catch-up 01:15 เก็บบิล 23:30–24:00 | fixed (deploy `5c439cba`) |
+| A3 | สูง | `recipe.controller.js` `syncUsageToInventory` | ซิงค์พร้อมกันตัดบิลซ้ำได้ (เช็คด้วย SELECT ธรรมดา, index ไม่ unique) | `GET_LOCK` ต่อฐานก่อน transaction | fixed (deploy `5c439cba`) |
+| A4 | สูง | `order.model.js` `updateOrderItemReceivingWithInventory` | แก้/ยกเลิกรับของลงแผนกปัจจุบันของคนสั่ง ไม่ใช่แผนกที่รับจริง (265 รายการในข้อมูลจริง) | ย้อนตามแถว `order_receiving` แรก (ปลายทาง/ต้นทางเดิม); ไม่เคยลงสต็อก + ลดจำนวน → ไม่ลงอะไร | fixed (deploy `5c439cba`) |
+| A5 | สูง | `stock-ledger.js` `reflowLedgerRows` · `setInitialBalance` | ยอดตั้งต้นเป็นส่วนต่าง รายการย้อนเวลาแทรกแล้วยอดเพี้ยน | แถว `initial` เป็นยอดสัมบูรณ์ + reflow หลังตั้ง | fixed (deploy `5c439cba`) |
+| A6 | สูง | `recipe.controller.js` | แผนกที่ตัดขาย = id น้อยสุดที่เคยนับ → เปลี่ยนเมื่อแผนกอื่นเริ่มนับ และซิงค์ซ้ำตัดซ้ำจากแผนกใหม่ | แผนกที่ผูกก่อน (`MIN(id)` ของรายการนับ) + เช็คบิลซ้ำแบบไม่ดูแผนก | fixed (deploy `5c439cba`) |
+| A7 | สูง | `applyStockAdjustment` · `getStockVarianceReport` | เวลานับ = `updated_at` → แก้ยอดแล้วกดใช้ใหม่ ยอดขายระหว่างนั้นถูกลบล้าง | `created_at` บีบให้อยู่ในวันที่นับ (`resolveStockCheckCountedAtUtc` / `stockCheckCountedAtSql`) | fixed (deploy `5c439cba`) |
+| B3 | กลาง | `createProductionTransform` | วันที่แปรรูปอนาคตได้ | 400 + `max` ในช่องวันที่ | fixed (deploy `5c439cba`) |
 
-เปิดยอดวันแรก (เจ้าของเลือก 13 พ.ย. 2569: ตั้งเป็น 0 ก่อน) — ลำดับบน Production (ต้องขออนุมัติทุกขั้น):
+เปิดยอดวันแรก (เจ้าของเลือก 13 พ.ย. 2569: ตั้งเป็น 0 ก่อน) — **ทำแล้ว 24 พ.ย. 2569 17:29:59 น.** (deployment `5c439cba`, 3,373 คู่, ดู CHANGELOG) ลำดับที่ใช้:
 1. สำรองฐาน Production ลง SSD
 2. deploy branch ที่มี 4e885293 ตามขั้นตอนปล่อยปกติ (ฐาน `market/production-base`)
 3. `node scripts/reset-stock-balances-to-zero.mjs` (dry-run ดูจำนวนคู่/ยอดรวม) → `--apply --at "<เวลา UTC ที่ dry-run แสดง หรือเวลาที่ตกลง>"` → ผลต้องได้ `nonzero_without_later_rows: 0`

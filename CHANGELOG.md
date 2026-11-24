@@ -2,14 +2,23 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
-## 2026-11-24 — หน้าสรุปการผลิต (`/production/summary`) — สถานะ: **Local (branch `market/transform-print-fix-20261113`) ยังไม่ deploy**
+## 2026-11-24 — ปล่อย Production: สติกเกอร์/สแกนเบิก/จัดของ/สรุปการผลิต + แก้สต็อก A1–A7 + เปิดยอดสต็อกเป็น 0 — สถานะ: **Production (deployment `5c439cba-672f-4f7b-a2d0-c889100d8266`, commit `94c4a674`)**
+
+- เจ้าของสั่ง "ขึ้น Production เลย" (+ เพิ่มหน้าสรุปการผลิตก่อนขึ้น); รวม `market/transform-print-fix-20261113` (a7957549) เข้า `market/integration-20261124` จาก `market/production-base` 9c24dc5d (= Production 0bf9f79f / 9516b460 ตรวจ hash runtime 486 ไฟล์ตรงก่อนปล่อย); conflict แค่ CHANGELOG; ปรับเทสต์ 2 จุดให้เข้ากับ INV-11 (เขียนสถานะสั้นเมื่อสรุปเขียนไม่ได้) และ ORD-10 (fake DB ตอบ query เส้นทางรับของ A4); fastcheck `integration-1124` server 766 ×2, client 876 ×2, pilot 55 ×2
+- สำรองฐานก่อนปล่อย: `/Volumes/SSD Files/SOLAO/market-order-system/backups/pre-release-market-20261124T0915Z/railway-market-order.sql.gz` (519,326,030 bytes, sha256 0390308d…, gzip ok, จบครบ 16:26:40, 141 ตาราง; manifest.json)
+- deploy ครั้งแรก `d79d06d2` FAILED ใน Docker build: `backend-safety.test.mjs` ล้มด้วย "Unable to deserialize cloned data" (อาการสุ่มของตัวรันเทสต์ Node; เทสต์อื่นผ่าน 745) → ปล่อยซ้ำ commit เดิมได้ `5c439cba` SUCCESS; hash `server/src`+`client/src` บน runtime ตรง 94c4a674 (510 ไฟล์); หน้า `/`, `/production/summary` 200, API ใหม่ 401 เมื่อไม่ login, log มีรอบ catch-up 01:15
+- ตารางใหม่สร้างเองตอนใช้ครั้งแรก: `product_pack_sizes`, `production_packing_scans`, `production_packing_status`
+- เปิดยอดสต็อกเป็น 0 (เจ้าของเลือก 13 พ.ย.): `railway ssh` → `node scripts/reset-stock-balances-to-zero.mjs` dry-run 3,373 คู่ (ไม่เป็น 0 3,259 คู่, บวกรวม 538,293.92, ลบรวม -424,191.16) → `--apply --at "2026-11-24 10:29:59"` (UTC = 17:29:59 น.) label `go-live-zero:20261124102959` ผล `nonzero_without_later_rows: 0`; ตรวจแยก: แถวรีเซ็ต 3,373 เวลาเดียวกัน, รายการหลังรีเซ็ต 13 (รับของจริงของสาขา) → ยอดไม่เป็น 0 13 คู่ รวม 509.90, ยอดคงเหลือ = แถวล่าสุดทุกคู่
+- ยังค้าง: ขั้นตอนรับของเข้าสโตร์ (สโตร์จะติดลบอีก), B1/B2/B4–B11 จากรายงานตรวจ, สูตร "ขาด" ในหน้าสรุปไม่นับของในคลัง, เรื่องสิทธิ์/เข้าระบบที่เจ้าของพักไว้
+
+## 2026-11-24 — หน้าสรุปการผลิต (`/production/summary`) — สถานะ: **Production 24 พ.ย. 2569 (deployment `5c439cba-672f-4f7b-a2d0-c889100d8266`, commit `94c4a674`)**
 
 - เจ้าของขอ "หน้าสรุปการผลิตสำหรับวันนี้" เลือกแบบ สั่ง / ผลิต / ขาด / จัดแล้ว: ต่อสินค้า สั่ง = ใบสั่งสาขาวันนั้น (ชุดเดียวกับหน้าจัดของ ซ่อนสาขาส่วนกลาง), ผลิต = รับเข้าจากการแปรรูปวันนั้นตามเวลาไทย, ขาด = สั่ง − ผลิต, จัดแล้ว = สแกน/กดในหน้าจัดของ; ใต้ตารางมีวัตถุดิบที่ใช้วันนั้น (แถวตัดวัตถุดิบของการแปรรูปชุดเดียวกัน); ขอบเขตกลุ่มสินค้าเหมือนหน้าจัดของ (ไม่มีกลุ่ม = ไม่เห็นอะไร); โหลดใหม่ทุก 1 นาที/เมื่อกลับมาที่หน้า; เมนู "สรุปการผลิต" สิทธิ์เดียวกับ "จัดของส่งสาขา"
 - API `GET /api/production/packing/summary?date=` (`server/src/models/production-summary.model.js`)
 - ลอง SQL จริงบนสำเนาฐาน SSD วันที่ 9 พ.ย.: 0.27 วิ 56 สินค้า วัตถุดิบ 4 รายการ; ภาพหน้าจอมือถือ 375 px ปกติ
 - ข้อควรรู้: ครัวกลางบันทึกแปรรูปวันละ ~10–17 สินค้า แต่สาขาสั่ง ~56 สินค้า ของที่ผลิตเป็นล็อตไว้ก่อนหรือซื้อมาจะขึ้น "ขาด" ทั้งที่มีในคลัง จนกว่าจะบันทึกผลิตทุกรายการ หรือเปลี่ยนสูตรเป็น สั่ง − (ผลิต + คงเหลือ) เมื่อยอดสต็อกเชื่อถือได้
 
-## 2026-11-24 — เครื่องยิงบาร์โค้ดบนแป้นพิมพ์ภาษาไทย — สถานะ: **Local (branch `market/transform-print-fix-20261113`) ยังไม่ deploy**
+## 2026-11-24 — เครื่องยิงบาร์โค้ดบนแป้นพิมพ์ภาษาไทย — สถานะ: **Production 24 พ.ย. 2569 (deployment `5c439cba-672f-4f7b-a2d0-c889100d8266`, commit `94c4a674`)**
 
 - พิมพ์สติกเกอร์ทดสอบ 3 ดวงเข้า `LABEL__9X00` (72×50 มม., ดวงปกติ + แพ็คไก่ย่าง ถุง 1/2, 2/2; `reports/sticker-test-20261124/`) เจ้าของยิงดวง `0014 6291 0002` บน Mac ที่ตั้งแป้นไทย ได้ข้อความ "จจๅภุ/ตๅจจจ/" = ตัวเลขถูกต้องแต่ออกเป็นตัวไทยตามตำแหน่งแป้นเกษมณี → หน้าเบิก/จัดของเดิมรับเฉพาะ 0–9 จะอ่านไม่ได้
 - ใหม่ `client/src/components/scan/scanCode.js`: `normalizeScanCode` แปลงแถวตัวเลขแป้นเกษมณี (ๅ / - ภ ถ ุ ึ ค ต จ) และเลขไทย ๐–๙ เป็นตัวเลข (ตาราง / - ใช้เฉพาะเมื่อข้อความมีตัวไทย), `keyEventToDigit` ใช้ `event.code` (Digit/Numpad) ก่อนซึ่งไม่ขึ้นกับภาษาแป้น; ใช้ในช่องสแกนหน้าเบิก/จัดของ และตัวฟังเครื่องยิง (หน้าเบิก + `useWedgeScanner`)
@@ -41,14 +50,14 @@
 - ครอบที่ขอบ export ของ `order.model.js` (ชื่อเดิม ภายในเปลี่ยนเป็น `…Once`): `updateReceivingItems` (ทั้ง mine และ branch), `autoReceivePendingItemsForNextDay` (cron), `bulkReceiveByDepartments`, `createManualReceivingItem` — ทุกรอบขอ connection ใหม่ BEGIN อ่านแถวใหม่ FOR UPDATE และ rollback เต็มก่อนลองใหม่ จึงคิด delta สต็อกใหม่ไม่ลงซ้ำ; แจ้งเตือนรับของ/response อยู่ที่ controller หลังสำเร็จครั้งเดียว ไม่ได้แก้ `updateOrderItemReceivingWithInventory` และ controller
 - ยังไม่แก้ต้นเหตุลำดับล็อก (SELECT ที่ join หลายตารางล็อก products/branches ด้วย และวนตามลำดับใน request) และยังไม่ครอบ confirm/void ของเอกสารรับสินค้าใหม่ (`receiving-documents-settlement.js`)
 - เทสต์ SSD: fastcheck `receiving-deadlock` เต็ม 2 รอบ (ผล/ log: `/Volumes/SSD Files/SOLAO/market-order-system/reports/fastcheck/receiving-deadlock/`); เทสต์ใหม่ `server/tests/receiving-deadlock-retry.test.mjs` (helper + controller→model จริงบนฐานจำลอง: deadlock รอบแรกแล้วสำเร็จ = commit 1 ครั้ง ลงสต็อกครั้งเดียว แจ้งเตือน 1 ครั้ง); ไม่ได้ทดสอบกับ MySQL จริง
-## 2026-11-13 — เปิดยอดสต็อกวันแรก: ตั้งทุกคู่เป็น 0 — สถานะ: **Local (สคริปต์พร้อม) ยังไม่รันบน Production**
+## 2026-11-13 — เปิดยอดสต็อกวันแรก: ตั้งทุกคู่เป็น 0 — สถานะ: **Production 24 พ.ย. 2569 (deployment `5c439cba-672f-4f7b-a2d0-c889100d8266`, commit `94c4a674`)**
 
 - เจ้าของเลือก "ตั้งเป็น 0 ก่อน" (แทนนับทุกแผนก) — สคริปต์ `server/scripts/reset-stock-balances-to-zero.mjs` (dry-run เป็นค่าเริ่มต้น, `--apply`, `--at "YYYY-MM-DD HH:mm:ss"` UTC ห้ามอนาคต, `--report`)
 - ไม่ลบประวัติ: เพิ่มแถว `transaction_type='initial'`, `reference_type='stock_reset'`, `reference_id='go-live-zero:<เวลา>'` ยอดหลัง 0 ทุกคู่ (ทุกคู่ที่มีประวัติ + ยอดค้างที่ไม่มีประวัติ) ณ เวลาเดียวกัน แล้ว reflow ทีละ 50 คู่; รันซ้ำด้วย `--at` เดิมข้ามคู่ที่ทำแล้ว; จบแล้วตรวจว่าคู่ที่ไม่มีรายการหลังเวลารีเซ็ตเป็น 0 ทุกคู่
 - ต้อง deploy commit 4e885293 (A5: initial เป็นยอดสัมบูรณ์) ก่อนรัน สคริปต์เช็คเองและไม่ยอมรันถ้าโค้ดยังไม่ใช่
 - ลองบนสำเนาตาราง ledger แยก schema `market_reset_test` (SSD): dry-run 3,346 คู่ ยอดบวกรวม 520,486.63 ติดลบรวม -389,490.60 → apply 28 วิ เหลือ 0 ทุกคู่; รันซ้ำข้าม 3,346; บิลขายย้อนเวลาก่อนรีเซ็ตแทรกแล้วยังเป็น 0; รับ 12 หลังรีเซ็ต = 12; ยอดก่อน/หลังต่อกันทุกแถวและยอดคงเหลือตรง ledger ทุกคู่ (`tmp/stock-fixes-verify/after-reset.mjs`, รายงาน `reports/stock-audit-20261113/reset-zero-*.json`)
 
-## 2026-11-13 — แก้บั๊กสต็อกก่อนเริ่มใช้จริง (A1–A7 + B3) — สถานะ: **Local (branch `market/transform-print-fix-20261113`) ยังไม่ deploy**
+## 2026-11-13 — แก้บั๊กสต็อกก่อนเริ่มใช้จริง (A1–A7 + B3) — สถานะ: **Production 24 พ.ย. 2569 (deployment `5c439cba-672f-4f7b-a2d0-c889100d8266`, commit `94c4a674`)**
 
 ที่มา: ตรวจบั๊กระบบสต็อกแบบละเอียด (`/Volumes/SSD Files/SOLAO/market-order-system/reports/stock-audit-20261113/REPORT.md`) เจ้าของสั่ง "แก้เลย" (เรื่องสิทธิ์/เข้าระบบพักไว้ก่อน)
 
@@ -63,7 +72,7 @@
 - เทสต์: `server/tests/stock-golive-fixes.test.mjs`, เพิ่มใน `order-safety` (A4), `backend-simplification` (A2), client `production-transform-print` (ข้อความ A1); fastcheck `transform-print` server 753 ×2, client 875 ×2, pilot 55 ×2
 - ลองกับ MySQL จริงบนสำเนาฐาน SSD (ClickHouse ปลอมในสคริปต์ `tmp/stock-fixes-verify/verify.mjs`): ซิงค์พร้อมกัน 2 รอบ applied 1/0, แผนกใหม่ id ต่ำกว่าเริ่มนับ → ไม่ตัดซ้ำ บิลใหม่ยังตัดแผนกเดิม, ตั้งยอด 10 + ขายย้อนเวลา → ยังเป็น 10, แก้ยอดนับแล้วกดใช้ใหม่ → เวลานับเดิม, แปรรูปเกินยอด → 409 ไม่มีแถว / ยืนยันแล้วบันทึก, วันที่พรุ่งนี้ → 400, ลดรับของหลังคนสั่งย้ายแผนก (ใน transaction แล้ว rollback) → ย้อนแผนกเดิม+สโตร์เดิม; หน้าแปรรูปในเบราว์เซอร์: กล่องยืนยันขึ้นถูก ยกเลิกแล้วไม่บันทึก
 
-## 2026-11-13 — หน้าแปรรูป: วันที่บนสติกเกอร์ / พิมพ์บนมือถือ / บันทึกซ้ำ — สถานะ: **Local (branch `market/transform-print-fix-20261113` จาก `market/production-base` 0d66235c) ยังไม่ deploy**
+## 2026-11-13 — หน้าแปรรูป: วันที่บนสติกเกอร์ / พิมพ์บนมือถือ / บันทึกซ้ำ — สถานะ: **Production 24 พ.ย. 2569 (deployment `5c439cba-672f-4f7b-a2d0-c889100d8266`, commit `94c4a674`)**
 
 - PRD-01: วันที่แปรรูปและวันที่ประวัติตั้งต้นใช้วันไทย (`bangkokDate`) เดิมใช้ UTC ก่อน 07:00 น. ได้เมื่อวาน
 - PRD-02: บันทึกหลายรายการแล้วพังกลางทาง ตัดรายการที่บันทึกแล้วออกจากฟอร์ม แสดงสรุป/ปุ่มพิมพ์ของที่บันทึกแล้ว และแจ้งรายการที่ไม่สำเร็จ กันกดบันทึกซ้ำแล้วรับเข้าซ้ำ

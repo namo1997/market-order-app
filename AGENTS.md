@@ -11,13 +11,16 @@
 - คงlegacy receivingหลักและเส้นทางใหม่แยกชัดเจน; ลบเฉพาะcreate tabที่เข้าไม่ได้ ไม่ลบmanualitemหรือประวัติ/หลักฐาน
 - หลักฐานล่าสุดบน SSD `reports/simplification-fixes-20261104/`; ทุกcandidateต้องผ่านเทสต์จากsourceที่commitและexportใหม่ ไม่แก้ชุดexportเก่าที่ติดHOLDให้กลายเป็นreleaseเงียบ ๆ
 
-## สติกเกอร์แปรรูป / สแกน / จัดของส่งสาขา — 13 พ.ย. 2026 (branch `market/transform-print-fix-20261113`, ยังไม่ deploy)
+## สติกเกอร์แปรรูป / สแกน / จัดของส่งสาขา / สรุปการผลิต — Production 24 พ.ย. 2026 (deployment `5c439cba`, commit `94c4a674`)
 
 - รหัสสติกเกอร์ 12 หลัก = `inventory_transactions.id` ของแถวรับเข้าจากการแปรรูป 8 หลัก + ลำดับดวง 4 หลัก (`server/src/utils/transform-sticker-code.js` ต้องตรงกับ `client/src/pages/production/transformStickerPrint.js`); สติกเกอร์ 72×50 มม. สำหรับเครื่องพิมพ์ฉลาก 203 dpi
 - `GET /api/withdraw/sticker/:code` (สิทธิ์หน้าเบิก) และ `/api/production/packing` (requireAdminOrProduction; กลุ่มสินค้าตาม `allowed_product_group_ids`, ผู้ดูแลใช้กลุ่ม 8 ผลิตสันกำแพง, ไม่มีกลุ่ม = ไม่เห็นใบสั่ง)
 - ตารางใหม่ (สร้างเองตอนเรียกครั้งแรก): `production_packing_scans` (unique `sticker_code`: ดวงหนึ่งจัดได้สาขาเดียว), `production_packing_status` — รุ่นแรกไม่เปลี่ยนการตัดสต็อก (ยังตัดตอนสาขารับของ `order_receiving`)
 - แพ็ค: ตาราง `product_pack_sizes` + `/api/production/pack-sizes` (แก้ได้: ฝ่ายผลิต/ผู้ดูแล), แท็บ "ตั้งค่าแพ็ค" ในหน้าแปรรูป; จำนวนดวง/จำนวนต่อดวงใช้ `getStickerCopies`/`getQuantityPerSticker(quantity, packSize, sequence)` สูตรเดียวกันทั้ง client/server
 - หน้าใหม่ `/production/packing` (เมนู "จัดของส่งสาขา"); สแกนได้ 3 ทาง: ช่องสแกน, เครื่องยิงแบบคีย์บอร์ด (`useWedgeScanner`), กล้อง (`CameraScanner`, zxing แยก chunk)
+- รหัสที่สแกนต้องผ่าน `normalizeScanCode` / `keyEventToDigit` (`client/src/components/scan/scanCode.js`): เครื่องยิงบนแป้นไทยส่งตัวไทยแทนตัวเลข (ๅ / - ภ ถ ุ ึ ค ต จ = 1–0)
+- หน้า `/production/summary` (เมนู "สรุปการผลิต", สิทธิ์เดียวกับจัดของ) + `GET /api/production/packing/summary?date=`: ต่อสินค้า สั่ง (ใบสั่งชุดเดียวกับจัดของ) / ผลิต (รับเข้าจากแปรรูปวันนั้นตามเวลาไทย) / ขาด = สั่ง − ผลิต / จัดแล้ว + วัตถุดิบที่ใช้
+- สต็อก: แถว `initial` เป็นยอดสัมบูรณ์ใน reflow เหมือน stock_check; เปิดยอดด้วย `server/scripts/reset-stock-balances-to-zero.mjs` (รันแล้ว 24 พ.ย. 17:29:59 น., `reference_type='stock_reset'`); แปรรูปเกินยอดตอบ 409 `INGREDIENT_OVER_STOCK` ต้องส่ง `confirm_over_stock: true`; ซิงค์ขายใช้ `GET_LOCK` และรอบ catch-up `SALES_SYNC_CATCHUP_CRON` (ค่าเริ่ม 01:15)
 
 อ่านกติกา `/Users/surachart/.solao-tools/SSD_POLICY.md` ก่อนสำรอง ทดสอบ build หรือจำลองข้อมูล ตามคำสั่งผู้ใช้ 4 ต.ค. 2026 ทุกระบบย่อยใช้ SSD เท่านั้นสำหรับข้อมูลที่สร้างใหม่
 
