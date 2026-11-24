@@ -1,4 +1,5 @@
 import * as packingModel from '../models/production-packing.model.js';
+import { getProductionSummary } from '../models/production-summary.model.js';
 
 // ขอบเขตกลุ่มสินค้าเหมือนหน้าคำสั่งซื้อ (getScopedProductGroupIds ใน admin.controller.js)
 // ผู้ดูแล = กลุ่มครัวกลางตั้งต้น; ผู้ใช้ที่ไม่ได้ผูกกลุ่มไว้ = ไม่เห็นอะไร (ไม่ปล่อยให้เห็นทุกกลุ่มโดยปริยาย)
@@ -109,6 +110,18 @@ export const setPacked = async (req, res, next) => {
     if (!date || !branchId) return;
     await packingModel.setBranchPacked({ date, branchId, packed: req.body?.packed !== false, userId: req.user?.id });
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// สรุปการผลิตของวัน: สั่ง / ผลิต / ขาด / จัดแล้ว + วัตถุดิบที่ใช้
+export const getSummary = async (req, res, next) => {
+  try {
+    const date = readDate(req, res);
+    if (!date) return;
+    const summary = await getProductionSummary({ date, groupIds: scopedGroupIds(req.user) });
+    res.json({ success: true, data: summary });
   } catch (error) {
     next(error);
   }

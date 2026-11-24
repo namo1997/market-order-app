@@ -51,6 +51,12 @@ const PackIcon = () => (
   </svg>
 );
 
+const SummaryIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+  </svg>
+);
+
 const WithdrawIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4v9" />
@@ -165,6 +171,15 @@ export const FunctionSelect = () => {
       tone: 'border-sky-200 bg-sky-50/70 hover:border-sky-300',
       iconTone: 'bg-sky-100 text-sky-700',
       icon: PackIcon
+    });
+    actions.push({
+      title: 'สรุปการผลิต',
+      description: 'สั่ง / ผลิต / ขาด / จัดแล้ว ของวันนี้',
+      path: '/production/summary',
+      group: 'production',
+      tone: 'border-emerald-200 bg-emerald-50/70 hover:border-emerald-300',
+      iconTone: 'bg-emerald-100 text-emerald-700',
+      icon: SummaryIcon
     });
   }
 

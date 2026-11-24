@@ -5,6 +5,7 @@ const withDate = (date) => `date=${encodeURIComponent(date)}`;
 
 export const productionPackingAPI = {
   getOverview: async (date) => (await apiClient.get(`/production/packing?${withDate(date)}`)).data,
+  getSummary: async (date) => (await apiClient.get(`/production/packing/summary?${withDate(date)}`)).data,
   getBranch: async (date, branchId) => (await apiClient.get(`/production/packing/branches/${branchId}?${withDate(date)}`)).data,
   scan: async (date, branchId, code) => (await apiClient.post(`/production/packing/branches/${branchId}/scan?${withDate(date)}`, { code })).data,
   adjust: async (date, branchId, productId, delta) => (

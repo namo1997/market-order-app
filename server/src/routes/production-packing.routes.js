@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(authenticate, requireAdminOrProduction);
 
 router.get('/', packingController.getOverview);
+router.get('/summary', packingController.getSummary);
 router.get('/branches/:branchId', packingController.getBranch);
 router.post('/branches/:branchId/scan', packingController.scan);
 router.post('/branches/:branchId/adjust', packingController.adjust);

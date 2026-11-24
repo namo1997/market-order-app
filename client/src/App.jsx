@@ -33,6 +33,7 @@ const AdminReceiving = lazyNamed(() => import('./pages/admin/receiving/AdminRece
 const OrdersToday = lazyNamed(() => import('./pages/admin/OrdersToday'), 'OrdersToday');
 const AdminOrderHistory = lazyNamed(() => import('./pages/admin/OrderHistory'), 'OrderHistory');
 const ProductionPacking = lazyNamed(() => import('./pages/production/ProductionPacking'), 'ProductionPacking');
+const ProductionSummary = lazyNamed(() => import('./pages/production/ProductionSummary'), 'ProductionSummary');
 const PurchaseWalk = lazyNamed(() => import('./pages/admin/PurchaseWalk'), 'PurchaseWalk');
 const AdminSettings = lazyNamed(() => import('./pages/admin/AdminSettings'), 'AdminSettings');
 const AdminReports = lazyNamed(() => import('./pages/admin/AdminReports'), 'AdminReports');
@@ -281,6 +282,14 @@ const App = () => {
           element={
             <ProtectedRoute requireSupplierOrders>
               <ProductionPacking />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/production/summary"
+          element={
+            <ProtectedRoute requireSupplierOrders>
+              <ProductionSummary />
             </ProtectedRoute>
           }
         />
