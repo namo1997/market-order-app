@@ -7,6 +7,7 @@ import { CameraScanner } from '../../components/scan/CameraScanner';
 import { ScanToast } from '../../components/scan/ScanResult';
 import { playScanFeedback, unlockScanAudio } from '../../components/scan/scanFeedback';
 import { useWedgeScanner } from '../../components/scan/useWedgeScanner';
+import { normalizeScanCode } from '../../components/scan/scanCode';
 
 // จัดของส่งสาขา: เลือกวัน → เลือกสาขา → สแกนสติกเกอร์เทียบใบส่งสินค้า
 // รุ่นแรกตรวจหยิบถูก/ครบและเก็บว่าดวงไหนไปสาขาไหน ยังไม่เปลี่ยนการตัดสต็อก
@@ -284,7 +285,7 @@ export const ProductionPacking = () => {
   };
 
   const handleScan = async (rawCode) => {
-    const code = String(rawCode || '').replace(/\D/g, '');
+    const code = normalizeScanCode(rawCode);
     if (!code || !branchId) return;
     if (pendingRef.current.has(code)) return;
     pendingRef.current.add(code);

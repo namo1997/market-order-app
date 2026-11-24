@@ -10,6 +10,7 @@ import { withdrawAPI } from '../../api/withdraw';
 import { CameraScanner } from '../../components/scan/CameraScanner';
 import { ScanToast, ScannedSummary } from '../../components/scan/ScanResult';
 import { playScanFeedback, unlockScanAudio } from '../../components/scan/scanFeedback';
+import { keyEventToDigit, normalizeScanCode } from '../../components/scan/scanCode';
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -362,7 +363,7 @@ export const WithdrawStock = () => {
   const formatCode = (code) => code.replace(/(\d{4})(?=\d)/g, '$1 ');
 
   const processScanCode = async (rawCode) => {
-    const code = String(rawCode || '').replace(/\D/g, '');
+    const code = normalizeScanCode(rawCode);
     if (!code) return;
     const already = scannedStickersRef.current.find((entry) => entry.code === code);
     if (already || pendingCodesRef.current.has(code)) {
@@ -438,7 +439,8 @@ export const WithdrawStock = () => {
         }
         return;
       }
-      if (/^\d$/.test(event.key)) buffer += event.key;
+      const digit = keyEventToDigit(event);
+      if (digit) buffer += digit;
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

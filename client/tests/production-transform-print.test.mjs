@@ -351,3 +351,21 @@ test('A1: over-stock 409 shows each ingredient with the unit it will really cut;
   assert.equal(getOverStockLines({ response: { status: 500 } }), null);
   assert.equal(getOverStockLines(new Error('network')), null);
 });
+
+test('scanner on a Thai keyboard layout: Kedmanee number-row characters become the sticker digits', async () => {
+  const { normalizeScanCode, keyEventToDigit } = await import('../src/components/scan/scanCode.js');
+  // เจ้าของยิงสติกเกอร์ดวง 0014 6291 0002 บน Mac ที่ตั้งแป้นไทย ได้ข้อความนี้
+  assert.equal(normalizeScanCode('จจๅภุ/ตๅจจจ/'), '001462910002');
+  assert.equal(normalizeScanCode('0014 6291 0002'), '001462910002');
+  assert.equal(normalizeScanCode('๐๐๑๔๖๒๙๑๐๐๐๒'), '001462910002');
+  // ไม่มีตัวไทย → / กับ - ไม่ถูกแปลงเป็นตัวเลข
+  assert.equal(normalizeScanCode('0014-6291/0002'), '001462910002');
+  assert.equal(normalizeScanCode(''), '');
+  // ปุ่ม: ใช้ event.code ก่อน (ไม่ขึ้นกับภาษา) แล้วค่อย key
+  assert.equal(keyEventToDigit({ code: 'Digit0', key: 'จ' }), '0');
+  assert.equal(keyEventToDigit({ code: 'Numpad7', key: '7' }), '7');
+  assert.equal(keyEventToDigit({ code: '', key: 'ภ' }), '4');
+  assert.equal(keyEventToDigit({ code: 'Slash', key: '/' }), '2');
+  assert.equal(keyEventToDigit({ code: 'Enter', key: 'Enter' }), '');
+  assert.equal(keyEventToDigit({ code: 'KeyA', key: 'ฟ' }), '');
+});
