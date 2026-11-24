@@ -46,6 +46,39 @@
 | INV-10 | กลาง | ข้อมูลเดิมใน production | ตรวจบนสำเนา 2026-10-07: stock_check 57/1,775 แถว `balance_after` ≠ ยอดนับ (19 แถวเป็นแถวล่าสุดของการนับ); reflow ใหม่เปลี่ยนยอด 20 คู่ ส่วนใหญ่เป็นการแก้ตัดซ้ำจาก INV-01 | ใช้ `balance_after` ต่อ (ต่างจากใช้ยอดนับแค่ 2 คู่); ตอน deploy รัน `scripts/reflow-stock-ledger-absolute.mjs` (dry-run แล้ว `--apply`) ครั้งเดียว; ปิดสคริปต์ reflow เก่า | fixed (reflow รันแล้ว 2026-10-07) |
 | INV-11 | สูง | `cron/syncJob.js` `runSalesSyncAttempt` (`sales_sync_retry_status`) | ตั้งแต่ 4 พ.ย. 2569 เก็บผลซิงค์ทั้งก้อนลง `system_settings.setting_value` (TEXT 64KB) เกินขนาด → `ER_DATA_TOO_LONG` ใน try เดียวกับการตัด → ตัดสำเร็จแต่บันทึก `pending` retry 14 รอบ/คืน และเช้าขึ้น `failed_window` ผิด (ไม่ตัดซ้ำเพราะข้าม `reference_id` เดิม) · แก้: เก็บสรุป `summarizeSyncResult`, เขียนสถานะผ่าน `writeStatusSafely` + สถานะ success แบบสั้นสำรอง; test `server/tests/sales-sync-status.test.mjs` (= A2 ในชุด `4e885293`) | fixed · Production 14 พ.ย. 2569 (deployment `0bf9f79f`, commit `9516b460`) · ยืนยันแล้วจากรอบ 23:30 น. 14 พ.ย.: สถานะ `success` 643 ตัวอักษร ตัด 192 รายการ ไม่มี retry |
 
+### ตรวจก่อนเริ่มใช้จริง 2026-11-13 (รายงาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/stock-audit-20261113/REPORT.md`)
+
+| id | ระดับ | ตำแหน่ง | ปัญหา | การแก้ | สถานะ |
+|---|---|---|---|---|---|
+| A1 | สูง | `inventory.model.js` `createProductionTransform` · `ProductionTransform.jsx` | ตัดวัตถุดิบผิดหน่วยไม่มีด่านกัน (น้ำปลา -134,729 แกลลอน, น้ำส้มสายชู -1,200 แกลลอน) | เกินยอดที่มี → 409 `INGREDIENT_OVER_STOCK` + รายละเอียด/หน่วย ไม่บันทึก; ผู้ใช้ยืนยันแล้วส่ง `confirm_over_stock: true` | fixed local |
+| A2 | สูง | `cron/syncJob.js` | เก็บผลซิงค์ทั้งก้อนเกิน TEXT → ซิงค์สำเร็จแต่ถูกนับว่าล้ม retry ทั้งคืน | เก็บสรุป, เขียนสถานะพลาดไม่ล้ม, รอบ catch-up 01:15 เก็บบิล 23:30–24:00 | fixed local |
+| A3 | สูง | `recipe.controller.js` `syncUsageToInventory` | ซิงค์พร้อมกันตัดบิลซ้ำได้ (เช็คด้วย SELECT ธรรมดา, index ไม่ unique) | `GET_LOCK` ต่อฐานก่อน transaction | fixed local |
+| A4 | สูง | `order.model.js` `updateOrderItemReceivingWithInventory` | แก้/ยกเลิกรับของลงแผนกปัจจุบันของคนสั่ง ไม่ใช่แผนกที่รับจริง (265 รายการในข้อมูลจริง) | ย้อนตามแถว `order_receiving` แรก (ปลายทาง/ต้นทางเดิม); ไม่เคยลงสต็อก + ลดจำนวน → ไม่ลงอะไร | fixed local |
+| A5 | สูง | `stock-ledger.js` `reflowLedgerRows` · `setInitialBalance` | ยอดตั้งต้นเป็นส่วนต่าง รายการย้อนเวลาแทรกแล้วยอดเพี้ยน | แถว `initial` เป็นยอดสัมบูรณ์ + reflow หลังตั้ง | fixed local |
+| A6 | สูง | `recipe.controller.js` | แผนกที่ตัดขาย = id น้อยสุดที่เคยนับ → เปลี่ยนเมื่อแผนกอื่นเริ่มนับ และซิงค์ซ้ำตัดซ้ำจากแผนกใหม่ | แผนกที่ผูกก่อน (`MIN(id)` ของรายการนับ) + เช็คบิลซ้ำแบบไม่ดูแผนก | fixed local |
+| A7 | สูง | `applyStockAdjustment` · `getStockVarianceReport` | เวลานับ = `updated_at` → แก้ยอดแล้วกดใช้ใหม่ ยอดขายระหว่างนั้นถูกลบล้าง | `created_at` บีบให้อยู่ในวันที่นับ (`resolveStockCheckCountedAtUtc` / `stockCheckCountedAtSql`) | fixed local |
+| B3 | กลาง | `createProductionTransform` | วันที่แปรรูปอนาคตได้ | 400 + `max` ในช่องวันที่ | fixed local |
+
+เปิดยอดวันแรก (เจ้าของเลือก 13 พ.ย. 2569: ตั้งเป็น 0 ก่อน) — ลำดับบน Production (ต้องขออนุมัติทุกขั้น):
+1. สำรองฐาน Production ลง SSD
+2. deploy branch ที่มี 4e885293 ตามขั้นตอนปล่อยปกติ (ฐาน `market/production-base`)
+3. `node scripts/reset-stock-balances-to-zero.mjs` (dry-run ดูจำนวนคู่/ยอดรวม) → `--apply --at "<เวลา UTC ที่ dry-run แสดง หรือเวลาที่ตกลง>"` → ผลต้องได้ `nonzero_without_later_rows: 0`
+4. หลังจากนี้ยอดเริ่มจาก 0: รับของบวก ขาย/แปรรูป/โอนออกลบ; นับสต็อกเมื่อพร้อมเพื่อให้ยอดตรงของจริง (สโตร์จะติดลบอีกจนกว่าจะมีขั้นตอนรับของเข้าสโตร์)
+
+ยังเปิด (จากรายงาน): B1 แก้ใบเบิกย้อนหลังลงเวลาปัจจุบัน, B2 ยกเลิกเอกสารรับแล้ว cron รับอัตโนมัติ, B4 ปัด 0.01, B5 รับ PO ไม่เช็ค is_countable, B6 ปัดแบ่งสัดส่วน, B7 ยกเลิกบิลขายหลังซิงค์, B8 realtime ไม่แปลงหน่วย, B9 สติกเกอร์ลำดับเกินจำนวนพิมพ์/แพ็คเปลี่ยนหลังพิมพ์, B10 deadlock, B11 bulk receive
+
+### หน้าแปรรูป `/production/transform` (ตรวจ 2026-11-13, branch `market/transform-print-fix-20261113` ยังไม่ deploy)
+| รหัส | ระดับ | ตำแหน่ง | อาการ | สถานะ |
+|---|---|---|---|---|
+| PRD-01 | สูง | `ProductionTransform.jsx` วันที่ตั้งต้น | `toISOString()` (UTC) ทำให้ก่อน 07:00 น. วันที่แปรรูป/วันที่ประวัติตั้งต้นเป็นเมื่อวาน → รับสินค้าเข้าวันผิดถ้าไม่ได้เปลี่ยนเอง | fixed local: ใช้ `bangkokDate()` |
+| PRD-02 | สูง | `ProductionTransform.jsx` `handleSubmit` | บันทึกทีละรายการ ถ้าพังกลางทาง รายการก่อนหน้าบันทึกแล้วแต่ฟอร์มไม่ล้าง กดซ้ำ = รับเข้าซ้ำ | fixed local: ตัดรายการที่บันทึกแล้วออก แจ้งรายการที่พัง |
+| PRD-03 | กลาง | `transformStickerPrint.js` `extractYmd` | สติกเกอร์จากแท็บประวัติของที่ทำ 00:00–07:00 น.: ล็อต/บาร์โค้ด/QR เป็นวันก่อนหน้า แต่ "วันที่ผลิต" เป็นวันไทย | fixed local: แปลงเป็นวันไทย |
+| PRD-04 | กลาง | `transformStickerPrint.js` `printTransformStickers` | สั่ง `close()` ทันทีหลัง `print()` มือถือ/แท็บเล็ตงานพิมพ์หายหรือได้หน้าว่าง | fixed local: ปิดเองเฉพาะคอมหลัง `afterprint`, มือถือมีปุ่ม พิมพ์/ปิด |
+| PRD-07 | กลาง | `ProductionTransform.jsx` ปุ่มพิมพ์ | หน้ากระดาษ 3x2 นิ้ว (76.2×50.8 มม.) ไม่ตรงสติกเกอร์จริง 72×50 มม. → พิมพ์เลื่อน/โดนตัด | fixed local: layout `72x50` |
+| PRD-08 | กลาง | `transformStickerPrint.js` | บาร์โค้ดยืดเต็มความกว้าง (แท่ง ~1.7 จุดที่ 203 dpi ไม่เป็นจุดเต็ม) + รหัสยาว 19 ตัว + QR ข้อความยาวช่องเล็ก → สแกนยาก | fixed local: รหัส 12 หลักเดียวกันทั้งสองแบบ, แท่ง 4 จุด, QR 21×21 ช่องละ 7 จุด |
+| PRD-05 | ต่ำ | `ProductionTransform.jsx` | การ์ดสินค้าแสดงแค่ 120 รายการแรก ไม่มีข้อความบอกว่ามีอีก (ต้องค้นหา) | open |
+| PRD-06 | ต่ำ | `transformStickerPrint.js` `getStickerCopies` | จำนวนดวง = จำนวนเต็มที่ผลิต ไม่ดูหน่วย (10 กก. = 10 ดวง, 2.5 กก. = 1 ดวง) ทุกดวงใช้ล็อตเดียวกัน | open (รอเจ้าของยืนยันว่าตั้งใจ) |
+
 ## จุดเชื่อมระบบอื่น
 - `ordering`/`receiving`, `store-po`, `withdraw`: เขียน ledger ผ่าน `createTransaction` หรือ SQL ของตัวเอง (ณ เวลาปัจจุบัน)
 - `stock-check`: ต้นทางยอดนับ (`stock_checks`) และ safety gate ก่อน apply (ต้องมี recipe_sale ของวันนั้นหรือผ่าน ClickHouse)

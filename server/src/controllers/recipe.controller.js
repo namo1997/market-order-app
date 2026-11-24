@@ -8,6 +8,14 @@ import { getBangkokDateKey } from '../utils/bangkok-date.js';
 import pool from '../config/database.js';
 import { getRecipeUnitMismatchMessage } from '../utils/unit-rules.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import {
+  RECIPE_SALE_SYNC_LOCK_SQL,
+  RECIPE_SALE_SYNC_LOCK_WAIT_SECONDS,
+  buildRecipeSaleReferenceIds,
+  pickSaleDepartment,
+  recipeSaleKeyWithoutDepartment,
+  recipeSaleReferencePrefixes
+} from '../utils/recipe-sale-sync.js';
 
 const SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
@@ -501,14 +509,6 @@ export const getUsageReport = async (req, res, next) => {
   }
 };
 
-const chunkArray = (items, size = 500) => {
-  const chunks = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
-  }
-  return chunks;
-};
-
 const resolveUsageBranchContext = async (branchId) => {
   if (Number.isFinite(branchId)) {
     const branch = await branchModel.getBranchById(branchId);
@@ -770,8 +770,9 @@ export const syncUsageToInventory = async (req, res, next) => {
 
     // ดึงคู่ (product_id, department_id) ที่เคยมีการเช็คสต็อก (reference_type='stock_check')
     // ในสาขาที่ผูก ClickHouse เท่านั้น — นี่คือเงื่อนไขว่าสินค้านั้น "ผูกแล้ว" และตัดได้
+    // first_check_id = รายการนับแรกที่ apply ของแผนกนั้น ใช้เลือกแผนกที่ตัดแบบคงที่ (A6)
     const [stockCheckRows] = await pool.query(
-      `SELECT DISTINCT it.product_id, it.department_id, d.branch_id
+      `SELECT it.product_id, it.department_id, d.branch_id, MIN(it.id) AS first_check_id
        FROM inventory_transactions it
        JOIN departments d ON d.id = it.department_id
        JOIN branches b ON d.branch_id = b.id
@@ -780,18 +781,20 @@ export const syncUsageToInventory = async (req, res, next) => {
          AND b.clickhouse_branch_id IS NOT NULL
          AND b.clickhouse_branch_id != ''
          AND it.product_id IN (${productIds.map(() => '?').join(', ')})
-         AND d.branch_id IN (${branchIds.map(() => '?').join(', ')})`,
+         AND d.branch_id IN (${branchIds.map(() => '?').join(', ')})
+       GROUP BY it.product_id, it.department_id, d.branch_id`,
       [...productIds, ...branchIds]
     );
 
-    // Map: "product_id|branch_id" → department_id ที่เช็คสต็อกล่าสุด
-    // ถ้าสินค้าเดียวกันเช็คหลายแผนกในสาขาเดียว → ใช้แผนกแรกที่พบ (unique per product+branch)
-    // กรณีเช็คหลายแผนก: จะบันทึกแยกแต่ละแผนก (ตามข้อมูลจริงใน stock_check)
-    const stockCheckMap = new Map(); // key: "product_id|branch_id" → [department_id, ...]
+    // Map: "product_id|branch_id" → [{ department_id, first_check_id }] แผนกที่นับ (ผูก) สินค้านี้ในสาขา
+    const stockCheckMap = new Map();
     for (const row of stockCheckRows) {
       const key = `${Number(row.product_id)}|${Number(row.branch_id)}`;
       if (!stockCheckMap.has(key)) stockCheckMap.set(key, []);
-      stockCheckMap.get(key).push(Number(row.department_id));
+      stockCheckMap.get(key).push({
+        department_id: Number(row.department_id),
+        first_check_id: Number(row.first_check_id)
+      });
     }
 
     const unresolvedItems = [];
@@ -813,26 +816,13 @@ export const syncUsageToInventory = async (req, res, next) => {
         continue;
       }
 
-      if (deptCandidates.length === 1) {
-        // มีแผนกเดียวที่เช็คสต็อกสินค้านี้ในสาขานั้น → ตัดที่นั่น
-        resolvedRows.push({
-          ...usage,
-          product_name: productMeta.name || usage.product_name,
-          department_id: deptCandidates[0],
-          rule: 'stock_check_single_dept'
-        });
-      } else {
-        // มีหลายแผนกในสาขาเดียวที่เช็คสินค้านี้ → บันทึกแยกแต่ละแผนก
-        // หาร qty เฉลี่ยตามจำนวนแผนก หรือตัดทีละแผนก
-        // เลือก: ตัดจากแผนกแรกที่เช็คก่อน (department_id น้อยสุด = เก่าสุด)
-        const sortedDepts = [...deptCandidates].sort((a, b) => a - b);
-        resolvedRows.push({
-          ...usage,
-          product_name: productMeta.name || usage.product_name,
-          department_id: sortedDepts[0],
-          rule: 'stock_check_multi_dept_first'
-        });
-      }
+      // หลายแผนกนับสินค้าเดียวกัน → ตัดจากแผนกที่ผูกก่อน (นับ apply ครั้งแรกก่อนสุด) แผนกที่เริ่มนับทีหลังไม่แย่ง
+      resolvedRows.push({
+        ...usage,
+        product_name: productMeta.name || usage.product_name,
+        department_id: pickSaleDepartment(deptCandidates),
+        rule: deptCandidates.length === 1 ? 'stock_check_single_dept' : 'stock_check_first_linked_dept'
+      });
     }
 
     const plannedQuantity = resolvedRows.reduce(
@@ -862,42 +852,55 @@ export const syncUsageToInventory = async (req, res, next) => {
 
     await ensureInventoryTables();
     const connection = await pool.getConnection();
+    let syncLocked = false;
 
     try {
+      // A3: ซิงค์ 2 ครั้งพร้อมกัน (ปุ่มกดเอง + cron / หลาย instance) ต้องไม่ตัดบิลเดียวกันซ้ำ
+      // ล็อกก่อนเริ่ม transaction → การเช็คบิลที่ตัดแล้วด้านล่างเห็นผลที่อีกรอบ commit ไปแล้ว
+      const [[lockRow]] = await connection.query(
+        `SELECT GET_LOCK(${RECIPE_SALE_SYNC_LOCK_SQL}, ?) AS got`,
+        [RECIPE_SALE_SYNC_LOCK_WAIT_SECONDS]
+      );
+      syncLocked = Number(lockRow?.got) === 1;
+      if (!syncLocked) {
+        const error = new Error('มีการตัดสต็อกขายอีกรอบกำลังทำงานอยู่ กรุณาลองใหม่อีกครั้ง');
+        error.statusCode = 409;
+        throw error;
+      }
+
       await connection.beginTransaction();
 
       // เรียงตามเวลาบิลจริง ASC เพื่อให้ balance_before/after ต่อเนื่องตามลำดับเวลา
       const referenceRows = resolvedRows
         .map((row) => ({
           ...row,
-          reference_id: `recipe-sale-bill:${row.sale_date}:${String(row.sale_datetime_local || row.sale_datetime_utc || '').replace(/\D/g, '').slice(0, 14)}:branch${row.branch_id}:dept${row.department_id}:product${row.product_id}:doc${String(row.sale_doc_no || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20) || 'na'}`,
-          legacy_reference_id: `recipe-sale:${row.sale_date}:branch${row.branch_id}:dept${row.department_id}:product${row.product_id}`
+          ...buildRecipeSaleReferenceIds(row)
         }))
         .sort((a, b) => {
           const ta = a.sale_datetime_local || a.sale_datetime_utc || `${a.sale_date} 12:00:00`;
           const tb = b.sale_datetime_local || b.sale_datetime_utc || `${b.sale_date} 12:00:00`;
           return ta < tb ? -1 : ta > tb ? 1 : 0;
         });
+      // บิลที่ตัดแล้ว เทียบแบบไม่ดูแผนก (A6): ถ้าแผนกที่ตัดเปลี่ยนไป บิลเดิมต้องไม่ถูกตัดซ้ำจากแผนกใหม่
       const existingReferences = new Set();
       const existingLegacyReferences = new Set();
-
-      for (const chunk of chunkArray(referenceRows, 300)) {
-        const ids = chunk
-          .flatMap((row) => [row.reference_id, row.legacy_reference_id])
-          .filter(Boolean);
+      const saleDates = Array.from(new Set(referenceRows.map((row) => row.sale_date).filter(Boolean)));
+      for (const saleDate of saleDates) {
+        const [billPrefix, legacyPrefix] = recipeSaleReferencePrefixes(saleDate);
         const [rows] = await connection.query(
           `SELECT reference_id
            FROM inventory_transactions
            WHERE reference_type = 'recipe_sale'
-             AND reference_id IN (${ids.map(() => '?').join(', ')})`,
-          ids
+             AND (reference_id LIKE ? OR reference_id LIKE ?)`,
+          [billPrefix, legacyPrefix]
         );
         rows.forEach((row) => {
           const refId = String(row.reference_id);
+          const key = recipeSaleKeyWithoutDepartment(refId);
           if (refId.startsWith('recipe-sale-bill:')) {
-            existingReferences.add(refId);
+            existingReferences.add(key);
           } else {
-            existingLegacyReferences.add(refId);
+            existingLegacyReferences.add(key);
           }
         });
       }
@@ -910,11 +913,11 @@ export const syncUsageToInventory = async (req, res, next) => {
       // กรอง rows ที่จะ insert จริง (ยังไม่มีใน DB)
       const rowsToInsert = [];
       for (const row of referenceRows) {
-        if (existingReferences.has(row.reference_id)) {
+        if (existingReferences.has(recipeSaleKeyWithoutDepartment(row.reference_id))) {
           skippedExisting += 1;
           continue;
         }
-        if (existingLegacyReferences.has(row.legacy_reference_id)) {
+        if (existingLegacyReferences.has(recipeSaleKeyWithoutDepartment(row.legacy_reference_id))) {
           skippedLegacyDaily += 1;
           continue;
         }
@@ -1037,6 +1040,11 @@ export const syncUsageToInventory = async (req, res, next) => {
       await connection.rollback();
       throw error;
     } finally {
+      if (syncLocked) {
+        await connection
+          .query(`SELECT RELEASE_LOCK(${RECIPE_SALE_SYNC_LOCK_SQL})`)
+          .catch(() => {});
+      }
       connection.release();
     }
   } catch (error) {

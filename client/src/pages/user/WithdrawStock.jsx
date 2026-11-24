@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -7,6 +7,10 @@ import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
 import { useAuth } from '../../contexts/AuthContext';
 import { withdrawAPI } from '../../api/withdraw';
+import { CameraScanner } from '../../components/scan/CameraScanner';
+import { ScanToast, ScannedSummary } from '../../components/scan/ScanResult';
+import { playScanFeedback, unlockScanAudio } from '../../components/scan/scanFeedback';
+import { keyEventToDigit, normalizeScanCode } from '../../components/scan/scanCode';
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
@@ -49,6 +53,21 @@ export const WithdrawStock = () => {
   const [editItems, setEditItems] = useState([]);
   const [editNotes, setEditNotes] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  // สแกนสติกเกอร์แปรรูป: 1 ดวง = จำนวนต่อดวง (ปกติ 1 หน่วย) และห้ามสแกนดวงเดิมซ้ำในใบเดียวกัน
+  const [scanCode, setScanCode] = useState('');
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanMessage, setScanMessage] = useState(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  // ดวงที่สแกนเข้าใบนี้ (ไว้แสดงสรุป): { code, product_id, name, unit, quantity, at }
+  const [scanEvents, setScanEvents] = useState([]);
+  const scanSeqRef = useRef(0);
+  const scanInputRef = useRef(null);
+  // ใช้ ref เพราะกล้อง/เครื่องยิงเรียก handler จาก closure เก่า และอาจสแกนรัวก่อน state อัปเดต
+  const scannedStickersRef = useRef([]);
+  const pendingCodesRef = useRef(new Set());
+  const productsRef = useRef([]);
+  const isTouchDevice = typeof window !== 'undefined'
+    && Boolean(window.matchMedia?.('(pointer: coarse)')?.matches);
 
   const loadHistory = async () => {
     try {
@@ -240,6 +259,9 @@ export const WithdrawStock = () => {
       setDraftItems((prev) =>
         prev.filter((item) => Number(item.product_id) !== productId)
       );
+      scannedStickersRef.current = scannedStickersRef.current
+        .filter((entry) => Number(entry.product_id) !== productId);
+      setScanEvents(scannedStickersRef.current);
       return;
     }
 
@@ -302,7 +324,127 @@ export const WithdrawStock = () => {
 
   const removeDraftItem = (productId) => {
     setDraftItems((prev) => prev.filter((item) => Number(item.product_id) !== Number(productId)));
+    scannedStickersRef.current = scannedStickersRef.current
+      .filter((entry) => Number(entry.product_id) !== Number(productId));
+    setScanEvents(scannedStickersRef.current);
   };
+
+  const addDraftQuantity = (product, delta) => {
+    const productId = Number(product?.id);
+    if (!Number.isFinite(productId) || !(delta > 0)) return;
+    setDraftItems((prev) => {
+      const existing = prev.find((item) => Number(item.product_id) === productId);
+      if (existing) {
+        return prev.map((item) => (Number(item.product_id) === productId
+          ? { ...item, quantity: Number((toNumber(item.quantity, 0) + delta).toFixed(4)) }
+          : item));
+      }
+      return [
+        ...prev,
+        {
+          product_id: productId,
+          product_name: product.name,
+          product_code: product.code,
+          unit_abbr: product.unit_abbr || product.unit_name || '',
+          quantity: delta,
+          notes: ''
+        }
+      ];
+    });
+  };
+
+  // ใช้ร่วมกัน 3 ทาง: ช่องสแกน, เครื่องยิงบาร์โค้ด (คีย์บอร์ด), กล้องมือถือ
+  const showScanResult = (tone, title, detail = '') => {
+    scanSeqRef.current += 1;
+    setScanMessage({ id: scanSeqRef.current, tone, title, detail });
+    playScanFeedback(tone);
+  };
+
+  const formatCode = (code) => code.replace(/(\d{4})(?=\d)/g, '$1 ');
+
+  const processScanCode = async (rawCode) => {
+    const code = normalizeScanCode(rawCode);
+    if (!code) return;
+    const already = scannedStickersRef.current.find((entry) => entry.code === code);
+    if (already || pendingCodesRef.current.has(code)) {
+      showScanResult('warn', 'สแกนดวงนี้แล้ว', already?.name || formatCode(code));
+      return;
+    }
+    pendingCodesRef.current.add(code);
+    try {
+      setScanBusy(true);
+      const response = await withdrawAPI.getSticker(code);
+      const sticker = response?.data;
+      const product = productsRef.current.find((row) => Number(row.id) === Number(sticker?.product_id));
+      if (!product) {
+        showScanResult('error', 'เบิกจากแผนกนี้ไม่ได้', sticker?.product_name || formatCode(code));
+        return;
+      }
+      const quantity = Number(sticker.quantity_per_sticker) > 0 ? Number(sticker.quantity_per_sticker) : 1;
+      const unit = product.unit_abbr || product.unit_name || '';
+      addDraftQuantity(product, quantity);
+      const entry = { code, product_id: Number(product.id), name: product.name, unit, quantity, at: Date.now() };
+      scannedStickersRef.current = [...scannedStickersRef.current, entry];
+      setScanEvents(scannedStickersRef.current);
+      const total = scannedStickersRef.current
+        .filter((row) => row.product_id === entry.product_id)
+        .reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+      showScanResult('ok', product.name, `+${quantity} ${unit} · รวม ${Number(total.toFixed(4))} ${unit}`.trim());
+    } catch (error) {
+      const status = error?.response?.status;
+      const title = status === 404
+        ? 'ไม่พบสติกเกอร์'
+        : status === 400
+          ? 'ไม่ใช่สติกเกอร์แปรรูป'
+          : (error?.response?.data?.message || 'สแกนไม่สำเร็จ');
+      showScanResult('error', title, formatCode(code));
+    } finally {
+      pendingCodesRef.current.delete(code);
+      setScanBusy(false);
+    }
+  };
+  const processScanCodeRef = useRef(null);
+  useEffect(() => {
+    processScanCodeRef.current = processScanCode;
+    productsRef.current = products;
+  });
+
+  const handleScanSubmit = async (event) => {
+    event.preventDefault();
+    const code = scanCode;
+    setScanCode('');
+    await processScanCode(code);
+    if (!isTouchDevice) scanInputRef.current?.focus();
+  };
+
+  // เครื่องยิงบาร์โค้ด (USB/Bluetooth) พิมพ์ตัวเลขรัว ๆ แล้วกด Enter: รับได้แม้ไม่ได้แตะช่องสแกน
+  useEffect(() => {
+    if (activeTab !== 'create') return undefined;
+    let buffer = '';
+    let lastAt = 0;
+    const onKeyDown = (event) => {
+      const target = event.target;
+      if (target === scanInputRef.current) return;
+      const tag = String(target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+      const now = Date.now();
+      if (now - lastAt > 100) buffer = '';
+      lastAt = now;
+      if (event.key === 'Enter') {
+        const code = buffer;
+        buffer = '';
+        if (code.length === 12) {
+          event.preventDefault();
+          processScanCodeRef.current?.(code);
+        }
+        return;
+      }
+      const digit = keyEventToDigit(event);
+      if (digit) buffer += digit;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeTab]);
 
   const saveWithdrawal = async () => {
     const targetId = Number(targetDepartmentId);
@@ -336,6 +478,9 @@ export const WithdrawStock = () => {
       alert(`บันทึกใบเบิกเรียบร้อย: ${withdrawalNo}`);
 
       setDraftItems([]);
+      scannedStickersRef.current = [];
+      setScanEvents([]);
+      setScanMessage(null);
       setDocumentNote('');
       setIsDraftModalOpen(false);
       await loadHistory();
@@ -465,6 +610,54 @@ export const WithdrawStock = () => {
 
             <Card>
               <h2 className="text-lg font-semibold text-gray-900">เพิ่มรายการสินค้า</h2>
+              <form className="mt-3 flex gap-2" onSubmit={handleScanSubmit}>
+                <input
+                  ref={scanInputRef}
+                  className="min-w-0 flex-1 border-2 border-blue-400 rounded-lg px-3 py-3 text-lg tracking-wider focus:border-blue-600 focus:outline-none"
+                  placeholder="สแกนสติกเกอร์"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  autoFocus={!isTouchDevice}
+                  value={scanCode}
+                  onChange={(e) => setScanCode(e.target.value)}
+                  onFocus={unlockScanAudio}
+                  readOnly={saving}
+                  aria-busy={scanBusy}
+                  aria-label="สแกนสติกเกอร์"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    unlockScanAudio();
+                    setIsCameraOpen(true);
+                  }}
+                  className="shrink-0 rounded-lg bg-blue-600 px-4 text-white hover:bg-blue-700 flex items-center gap-2 font-semibold"
+                  aria-label="สแกนด้วยกล้อง"
+                >
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" strokeLinecap="round" />
+                    <path d="M7 12h10" strokeLinecap="round" />
+                  </svg>
+                  กล้อง
+                </button>
+              </form>
+              {scanEvents.length > 0 && (
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+                  <ScannedSummary events={scanEvents} />
+                </div>
+              )}
+              {!isCameraOpen && <ScanToast result={scanMessage} />}
+              {isCameraOpen && (
+                <CameraScanner
+                  onClose={() => {
+                    setIsCameraOpen(false);
+                    setScanMessage(null);
+                  }}
+                  onDetected={(code) => processScanCodeRef.current?.(code)}
+                  result={scanMessage}
+                  events={scanEvents}
+                />
+              )}
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 mb-1">ค้นหาสินค้า</label>
                 <input

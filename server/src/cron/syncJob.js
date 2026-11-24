@@ -6,6 +6,8 @@ const SALES_SYNC_TIMEZONE = process.env.SALES_SYNC_TIMEZONE || 'Asia/Bangkok';
 const SALES_SYNC_CRON = process.env.SALES_SYNC_CRON || '30 23 * * *';
 const SALES_SYNC_RETRY_CRON = process.env.SALES_SYNC_RETRY_CRON || '0,30 0-5 * * *';
 const SALES_SYNC_RETRY_FINAL_CRON = process.env.SALES_SYNC_RETRY_FINAL_CRON || '0 6 * * *';
+// รอบหลังเที่ยงคืน: รอบหลัก 23:30 ไม่เห็นบิล 23:30–24:00 จึงดึงวันก่อนซ้ำอีกครั้ง (บิลที่ตัดแล้วถูกข้าม)
+const SALES_SYNC_CATCHUP_CRON = process.env.SALES_SYNC_CATCHUP_CRON || '15 1 * * *';
 const SALES_SYNC_STATUS_KEY = 'sales_sync_retry_status';
 
 const getDateStringInTimezone = (date, timeZone) => {
@@ -272,6 +274,14 @@ const shouldRunRetry = (status, targetDate) => {
     return status.state === 'pending';
 };
 
+// ดึงซ้ำหลังเที่ยงคืนเฉพาะเมื่อวันนั้นสำเร็จจากรอบ 23:30 เท่านั้น
+// (ถ้ายัง pending ให้ retry ทำ ถ้า retry/catch-up สำเร็จแล้วหลังเที่ยงคืน แปลว่าเห็นบิลครบแล้ว)
+export const shouldRunCatchUp = (status, targetDate) => {
+    if (!status) return false;
+    if (String(status.target_date || '') !== String(targetDate)) return false;
+    return status.state === 'success' && status.source === 'primary';
+};
+
 export const initSyncJob = () => {
     const tasks = [];
     // Primary: run at 23:30 (default) in Asia/Bangkok
@@ -329,8 +339,27 @@ export const initSyncJob = () => {
         timezone: SALES_SYNC_TIMEZONE
     }));
 
+    // Catch-up after midnight: bills 23:30-24:00 of the previous day were not visible at 23:30.
+    tasks.push(cron.schedule(SALES_SYNC_CATCHUP_CRON, async () => {
+        try {
+            const catchUpDate = getPreviousDateStringInTimezone(SALES_SYNC_TIMEZONE);
+            const status = await readStatus();
+            if (!shouldRunCatchUp(status, catchUpDate)) return;
+            console.log(`[Cron] Catch-up sales sync for date=${catchUpDate}`);
+            await attemptSalesSync({
+                targetDate: catchUpDate,
+                source: 'catch-up',
+                finalizeOnFail: false
+            });
+        } catch (error) {
+            console.error('[Cron] Unexpected error in catch-up sales sync:', error);
+        }
+    }, {
+        timezone: SALES_SYNC_TIMEZONE
+    }));
+
     console.log(
-        `[Cron] Sales sync schedules: primary=${SALES_SYNC_CRON}, retry=${SALES_SYNC_RETRY_CRON}, final=${SALES_SYNC_RETRY_FINAL_CRON}, timezone=${SALES_SYNC_TIMEZONE}`
+        `[Cron] Sales sync schedules: primary=${SALES_SYNC_CRON}, retry=${SALES_SYNC_RETRY_CRON}, final=${SALES_SYNC_RETRY_FINAL_CRON}, catch-up=${SALES_SYNC_CATCHUP_CRON}, timezone=${SALES_SYNC_TIMEZONE}`
     );
     return () => { for (const task of tasks) task?.stop(); };
 };

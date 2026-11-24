@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import JsBarcode from 'jsbarcode';
-import QRCodeGenerator from 'qrcode-generator';
 import { Layout } from '../../components/layout/Layout';
 import { Input } from '../../components/common/Input';
 import { Modal } from '../../components/common/Modal';
 import { productsAPI } from '../../api/products';
 import { inventoryAPI } from '../../api/inventory';
 import { useAuth } from '../../contexts/AuthContext';
-import { usageUnitOf, inputUnitLabel, toBaseQuantity, formatNumber } from '../../utils/usage-unit';
+import { usageUnitOf, inputUnitLabel, toBaseQuantity, formatNumber, getOverStockLines } from '../../utils/usage-unit';
 import { ProductionUsageUnitTab } from './ProductionUsageUnitTab';
+import { ProductionPackSizeTab } from './ProductionPackSizeTab';
+import { productPackSizesAPI } from '../../api/productPackSizes';
+import { printTransformStickers, TRANSFORM_STICKER_LAYOUT } from './transformStickerPrint';
+import { bangkokDate } from '../../utils/salesReportDates';
 
 const isBaseIngredientRequired = (product) => {
   return Boolean(
@@ -22,7 +24,6 @@ const isBaseIngredientRequired = (product) => {
   );
 };
 
-const todayString = new Date().toISOString().split('T')[0];
 
 const formatDateTime = (value) => {
   if (!value) return '-';
@@ -35,16 +36,6 @@ const formatDateTime = (value) => {
   });
 };
 
-const formatThaiDate = (value) => {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    dateStyle: 'short'
-  });
-};
-
 const formatQuantity = (value) => {
   const number = Number(value);
   if (!Number.isFinite(number)) return '0';
@@ -52,409 +43,6 @@ const formatQuantity = (value) => {
     minimumFractionDigits: 0,
     maximumFractionDigits: 3
   });
-};
-
-const escapeHtml = (value) => String(value || '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#039;');
-
-const extractYmd = (value) => {
-  const text = String(value || '').trim();
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-const buildLotNo = (referenceId, producedAt) => {
-  const ymd = (extractYmd(producedAt) || '').replace(/-/g, '') || '00000000';
-  const cleanedRef = String(referenceId || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-  const refSuffix = cleanedRef ? cleanedRef.slice(-6) : String(Date.now()).slice(-6);
-  return `LOT${ymd}-${refSuffix}`;
-};
-
-const normalizeScanText = (value) => String(value || '')
-  .trim()
-  .replace(/\s+/g, '')
-  .replace(/[^A-Za-z0-9_-]/g, '')
-  .toUpperCase();
-
-const buildTracePayload = (label, lotNo) => {
-  const producedYmd = extractYmd(label?.producedAt || label?.createdAt || new Date().toISOString()) || '0000-00-00';
-  const producedCompact = producedYmd.replace(/-/g, '');
-  const producedShort = producedCompact.slice(-6);
-  const productCode = normalizeScanText(label?.productCode || label?.productId || 'UNKNOWN').slice(0, 8) || 'UNKNOWN';
-  const referenceId = normalizeScanText(label?.referenceId || '').slice(-6);
-  const lotSuffix = normalizeScanText(lotNo).slice(-6) || referenceId || '000000';
-  const lotShort = `${producedShort}-${lotSuffix}`;
-
-  // ลดความยาวบาร์โค้ดให้สแกนง่ายบนสติกเกอร์ 80x80
-  // รูปแบบ: {PRODUCT_CODE}-{YYMMDD}-{LOT_SUFFIX}
-  const barcodeValue = `${productCode}-${producedShort}-${lotSuffix}`;
-
-  // QR เก็บข้อมูลครบ แต่ใช้รูปแบบสั้นเพื่อลดความหนาแน่น
-  const qrPayload = `SOLAO|T|PC:${productCode}|D:${producedYmd}|LOT:${lotShort}|R:${referenceId || 'NA'}`;
-
-  return {
-    barcodeValue,
-    qrValue: qrPayload
-  };
-};
-
-const buildBarcodeSvg = (value) => {
-  try {
-    const svgNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    JsBarcode(svgNode, String(value || '').trim() || 'SOLAO|UNKNOWN', {
-      format: 'CODE128',
-      displayValue: false,
-      margin: 10,
-      width: 2,
-      height: 56,
-      background: '#ffffff'
-    });
-    return svgNode.outerHTML;
-  } catch (error) {
-    console.error('Failed to build barcode svg', error);
-    return '<svg viewBox="0 0 120 30" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="120" height="30" fill="#fff" stroke="#000"/></svg>';
-  }
-};
-
-const buildQrSvg = (value) => {
-  try {
-    const qr = QRCodeGenerator(0, 'L');
-    qr.addData(String(value || ''));
-    qr.make();
-    return qr.createSvgTag(2, 2);
-  } catch (error) {
-    console.error('Failed to build qr svg', error);
-    return '<svg viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="42" height="42" fill="#fff" stroke="#000"/></svg>';
-  }
-};
-
-const getStickerCopies = (quantityValue) => {
-  const qty = Number(quantityValue);
-  if (!Number.isFinite(qty) || qty <= 0) return 1;
-  // ถ้าเป็นจำนวนเต็ม ให้พิมพ์ตามจำนวนชุด เช่น 10 => 10 ดวง
-  if (Math.abs(qty - Math.round(qty)) < 0.000001) return Math.max(1, Math.round(qty));
-  // ถ้าไม่เต็มจำนวน ให้พิมพ์อย่างน้อย 1 ดวง
-  return 1;
-};
-
-const expandStickerLabels = (labels = []) => {
-  const expanded = [];
-  for (const label of (Array.isArray(labels) ? labels : [])) {
-    const copies = Math.min(getStickerCopies(label?.quantityValue), 200);
-    for (let i = 1; i <= copies; i += 1) {
-      expanded.push({
-        ...label,
-        sequenceText: copies > 1 ? `${i}/${copies}` : ''
-      });
-    }
-  }
-  return expanded;
-};
-
-const STICKER_LAYOUTS = {
-  '80x80': {
-    pageWidth: '80mm',
-    pageHeight: '80mm',
-    padding: '3.5mm',
-    gap: '1.6mm',
-    productFont: '23px',
-    productMinHeight: '24mm',
-    productMaxHeight: '30mm',
-    productLineClamp: 3,
-    barcodeHeight: '12.5mm',
-    dateLabelFont: '11px',
-    dateValueFont: '21px',
-    footerFont: '13px',
-    footerMinHeight: '6mm',
-    codeTextFont: '8px',
-    dateQrSize: '16mm',
-    lotFont: '9px',
-    bottomRowGap: '2mm'
-  },
-  '3x2': {
-    pageWidth: '3in',
-    pageHeight: '2in',
-    padding: '2.4mm',
-    gap: '1.1mm',
-    productFont: '15px',
-    productMinHeight: '11mm',
-    productMaxHeight: '14mm',
-    productLineClamp: 2,
-    barcodeHeight: '7.5mm',
-    dateLabelFont: '9px',
-    dateValueFont: '14px',
-    footerFont: '10px',
-    footerMinHeight: '4.5mm',
-    codeTextFont: '6.5px',
-    dateQrSize: '11.5mm',
-    lotFont: '7.5px',
-    bottomRowGap: '1.2mm'
-  }
-};
-
-const buildTransformStickerHtml = (labels = [], options = {}) => {
-  const layoutKey = options?.layout === '80x80' ? '80x80' : '3x2';
-  const layout = STICKER_LAYOUTS[layoutKey];
-  const pageWidth = layout.pageWidth;
-  const pageHeight = layout.pageHeight;
-  const pageOrientation = layoutKey === '3x2' ? 'landscape' : 'portrait';
-  const contentScale = 0.98;
-  const useLandscapeFallback = Boolean(options?.landscapeFallback);
-  const expandedLabels = expandStickerLabels(labels);
-  const pages = expandedLabels
-    .map((label, index) => {
-      const lotNo = buildLotNo(label?.referenceId, label?.producedAt);
-      const producedDate = formatThaiDate(label?.producedAt || label?.createdAt || new Date().toISOString());
-      const productUnit = String(label?.productUnit || '').trim();
-      const productLine = productUnit
-        ? `${String(label?.productName || '-').trim()} (${productUnit})`
-        : String(label?.productName || '-').trim();
-      const { barcodeValue, qrValue } = buildTracePayload(label, lotNo);
-      const barcodeSvg = buildBarcodeSvg(barcodeValue);
-      const qrSvg = buildQrSvg(qrValue);
-      const quantityText = label?.quantityText
-        ? `<span>${escapeHtml(label.quantityText)}</span>`
-        : '';
-      const sequenceText = label?.sequenceText
-        ? `<span>${escapeHtml(label.sequenceText)}</span>`
-        : '';
-      const footerParts = [quantityText, sequenceText].filter(Boolean).join('<span class="sep">•</span>');
-
-      return `
-      <section class="sticker ${index < expandedLabels.length - 1 ? 'page-break' : ''}">
-        <div class="sticker-inner">
-          <div class="sticker-content">
-            <div class="product">${escapeHtml(productLine || '-')}</div>
-            <div class="barcode-mid">
-              ${barcodeSvg}
-              <div class="code-text">${escapeHtml(barcodeValue)}</div>
-            </div>
-            <div class="date-block">
-              <div class="date-info">
-                <div class="date-label">วันที่ผลิต</div>
-                <div class="date-value">${escapeHtml(producedDate)}</div>
-              </div>
-              <div class="date-qr">
-                ${qrSvg}
-              </div>
-            </div>
-            <div class="footer">
-              ${footerParts || '<span>&nbsp;</span>'}
-            </div>
-            <div class="bottom-row">
-              <div class="lot">ล็อต ${escapeHtml(lotNo)}</div>
-            </div>
-          </div>
-        </div>
-      </section>
-      `;
-    })
-    .join('');
-
-  return `
-<!doctype html>
-<html lang="th">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Transform Sticker</title>
-  <style>
-    @page {
-      size: ${pageWidth} ${pageHeight} !important;
-      size: ${pageWidth} ${pageHeight} ${pageOrientation} !important;
-      margin: 0 !important;
-    }
-    @media print {
-      @page {
-        size: ${pageWidth} ${pageHeight} !important;
-        size: ${pageWidth} ${pageHeight} ${pageOrientation} !important;
-        margin: 0 !important;
-      }
-      html, body {
-        width: ${pageWidth} !important;
-        height: ${pageHeight} !important;
-      }
-      .sticker {
-        width: ${pageWidth} !important;
-        height: ${pageHeight} !important;
-      }
-    }
-    html, body {
-      width: ${pageWidth};
-      height: ${pageHeight};
-      margin: 0;
-      padding: 0;
-      font-family: Tahoma, "Noto Sans Thai", sans-serif;
-      color: #000;
-    }
-    .sticker {
-      box-sizing: border-box;
-      width: ${pageWidth};
-      height: ${pageHeight};
-      padding: ${layout.padding};
-      position: relative;
-      overflow: hidden;
-    }
-    .sticker-inner {
-      width: 100%;
-      height: 100%;
-      position: relative;
-    }
-    .sticker-content {
-      display: flex;
-      flex-direction: column;
-      gap: ${layout.gap};
-      width: 100%;
-      height: 100%;
-      transform: scale(${contentScale});
-      transform-origin: top left;
-    }
-    .page-break { page-break-after: always; }
-    .product {
-      font-size: ${layout.productFont};
-      font-weight: 700;
-      line-height: 1.12;
-      min-height: ${layout.productMinHeight};
-      max-height: ${layout.productMaxHeight};
-      overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: ${layout.productLineClamp};
-      -webkit-box-orient: vertical;
-    }
-    .barcode-mid {
-      display: flex;
-      flex-direction: column;
-      gap: 0.6mm;
-    }
-    .barcode-mid svg {
-      width: 100%;
-      height: ${layout.barcodeHeight};
-      border: 1px solid #111;
-      box-sizing: border-box;
-    }
-    .date-block {
-      border-top: 1px solid #000;
-      border-bottom: 1px solid #000;
-      padding: 2mm 0;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      align-items: center;
-      gap: 1.4mm;
-    }
-    .date-info {
-      min-width: 0;
-    }
-    .date-label {
-      font-size: ${layout.dateLabelFont};
-      color: #222;
-      margin-bottom: 0.8mm;
-    }
-    .date-value {
-      font-size: ${layout.dateValueFont};
-      font-weight: 700;
-      line-height: 1.05;
-    }
-    .footer {
-      display: flex;
-      justify-content: flex-start;
-      align-items: center;
-      gap: 1mm;
-      font-size: ${layout.footerFont};
-      font-weight: 600;
-      min-height: ${layout.footerMinHeight};
-    }
-    .sep { color: #666; }
-    .code-text {
-      font-size: ${layout.codeTextFont};
-      line-height: 1;
-      letter-spacing: 0.1px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .bottom-row {
-      margin-top: auto;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      gap: ${layout.bottomRowGap};
-    }
-    .date-qr {
-      width: ${layout.dateQrSize};
-      height: ${layout.dateQrSize};
-      border: 1px solid #111;
-      box-sizing: border-box;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0.6mm;
-      background: #fff;
-    }
-    .date-qr svg {
-      width: 100%;
-      height: 100%;
-      display: block;
-      shape-rendering: crispEdges;
-    }
-    .lot {
-      font-size: ${layout.lotFont};
-      color: #333;
-      letter-spacing: 0.2px;
-      line-height: 1.15;
-    }
-    ${useLandscapeFallback ? `
-    @media print {
-      .sticker-content {
-        position: absolute;
-        top: 0;
-        left: ${pageWidth};
-        width: ${pageHeight};
-        height: ${pageWidth};
-        transform-origin: top left;
-        transform: rotate(90deg) scale(${contentScale});
-      }
-    }` : ''}
-  </style>
-</head>
-<body>
-  ${pages || '<section class="sticker"><div class="header">ไม่มีข้อมูลพิมพ์</div></section>'}
-</body>
-</html>`;
-};
-
-const printTransformStickers = (labels, options = {}) => {
-  const expanded = expandStickerLabels(labels);
-  if (expanded.length === 0) {
-    alert('ไม่มีข้อมูลพิมพ์');
-    return;
-  }
-  const popup = window.open(
-    '',
-    '_blank',
-    'width=920,height=920'
-  );
-  if (!popup) {
-    alert('ไม่สามารถเปิดหน้าพิมพ์ได้');
-    return;
-  }
-  popup.document.open();
-  popup.document.write(buildTransformStickerHtml(labels, options));
-  popup.document.close();
-  popup.focus();
-  setTimeout(() => {
-    popup.print();
-    popup.close();
-  }, 250);
 };
 
 const extractTransformNote = (rawNote) => {
@@ -479,10 +67,13 @@ export const ProductionTransform = () => {
   const [summary, setSummary] = useState(null);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('create');
-  const [transformDate, setTransformDate] = useState(todayString);
-  const [historyDate, setHistoryDate] = useState(todayString);
+  // วันไทย ไม่ใช่ UTC: ก่อน 07:00 น. toISOString() ได้วันก่อนหน้า ทำให้แปรรูปลงวันผิด
+  const [transformDate, setTransformDate] = useState(() => bangkokDate());
+  const [historyDate, setHistoryDate] = useState(() => bangkokDate());
   const [historyRows, setHistoryRows] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // บรรจุแพ็คละ (product_id → { pack_size, pack_unit_label }) ใช้ตอนพิมพ์สติกเกอร์ 1 ดวงต่อแพ็ค
+  const [packSizes, setPackSizes] = useState(() => new Map());
   const [editingRow, setEditingRow] = useState(null);
   const [editQuantity, setEditQuantity] = useState('');
   const [editNotes, setEditNotes] = useState('');
@@ -599,6 +190,34 @@ export const ProductionTransform = () => {
   useEffect(() => {
     loadData();
   }, [departmentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    productPackSizesAPI.list()
+      .then((response) => {
+        if (cancelled) return;
+        const rows = Array.isArray(response?.data) ? response.data : [];
+        setPackSizes(new Map(rows.map((row) => [Number(row.product_id), row])));
+      })
+      .catch((error) => console.error('Error loading pack sizes:', error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handlePackSizeSaved = (productId, pack) => {
+    setPackSizes((prev) => {
+      const next = new Map(prev);
+      if (pack) next.set(Number(productId), pack);
+      else next.delete(Number(productId));
+      return next;
+    });
+  };
+
+  const packFieldsFor = (productId) => {
+    const pack = packSizes.get(Number(productId));
+    return pack ? { packSize: Number(pack.pack_size), packUnitLabel: pack.pack_unit_label } : {};
+  };
 
   useEffect(() => {
     if (activeTab === 'history') {
@@ -789,59 +408,88 @@ export const ProductionTransform = () => {
 
     setSaving(true);
     try {
+      // บันทึกทีละรายการ ถ้าพังกลางทาง รายการก่อนหน้าบันทึกไปแล้ว
+      // ต้องเอารายการที่บันทึกแล้วออกจากฟอร์ม ไม่งั้นกดบันทึกซ้ำจะรับสินค้าเข้าซ้ำ
       const results = [];
+      const savedItems = [];
+      let failure = null;
+      let cancelled = false;
       for (const item of selectedOutputItems) {
-        const response = await inventoryAPI.createProductionTransform({
+        const payload = {
           transform_date: transformDate,
           department_id: departmentId,
           output_product_id: item.product_id,
           output_quantity: item.quantity,
           ingredients: item.ingredients || [],
           notes: notes ? String(notes).trim() : ''
-        });
-        results.push(response?.data || null);
+        };
+        try {
+          let response;
+          try {
+            response = await inventoryAPI.createProductionTransform(payload);
+          } catch (error) {
+            // วัตถุดิบเกินยอดที่มี (มักกรอกผิดหน่วย) → ให้เห็นจำนวน+หน่วยที่จะตัดจริงก่อน แล้วค่อยยืนยัน
+            const overStock = getOverStockLines(error);
+            if (!overStock) throw error;
+            if (!window.confirm(`"${item.product_name}" วัตถุดิบไม่พอ\n${overStock}\n\nหน่วยถูกต้อง บันทึกต่อ?`)) {
+              cancelled = true;
+              break;
+            }
+            response = await inventoryAPI.createProductionTransform({ ...payload, confirm_over_stock: true });
+          }
+          results.push(response?.data || null);
+          savedItems.push(item);
+        } catch (error) {
+          failure = { item, error };
+          break;
+        }
       }
 
-      const insufficientLines = results.flatMap((result) => {
-        const rows = Array.isArray(result?.insufficient_ingredients)
-          ? result.insufficient_ingredients
-          : [];
-        return rows.map((row) => {
-          const productName = String(row?.product_name || '-');
-          const shortageQty = Number(row?.shortage_quantity || 0);
-          return `- ${productName} ขาด ${shortageQty}`;
+      if (failure) {
+        console.error('Error creating production transform:', failure.error);
+      }
+
+      if (savedItems.length > 0) {
+        const selectedUnitByProductId = new Map(
+          savedItems.map((item) => [Number(item.product_id), item.product_unit || ''])
+        );
+
+        setSummary({
+          transform_date: transformDate,
+          printed_at: new Date().toISOString(),
+          total_items: results.length,
+          total_quantity: savedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+          items: results
+            .map((result) => ({
+              reference_id: result?.reference_id || '-',
+              product_id: result?.output?.product_id || null,
+              product_code: result?.output?.product_code || '',
+              transaction_id: result?.output?.transaction_id || null,
+              product_name: result?.output?.product_name || '-',
+              product_unit: selectedUnitByProductId.get(Number(result?.output?.product_id)) || '',
+              quantity: Number(result?.output?.quantity || 0)
+            }))
         });
-      });
 
-      const selectedUnitByProductId = new Map(
-        selectedOutputItems.map((item) => [Number(item.product_id), item.product_unit || ''])
-      );
+        const savedIds = new Set(savedItems.map((item) => Number(item.product_id)));
+        const withoutSaved = (prev) => Object.fromEntries(
+          Object.entries(prev).filter(([productId]) => !savedIds.has(Number(productId)))
+        );
+        setOutputQuantities(withoutSaved);
+        setIngredientUsageByOutput(withoutSaved);
+        if (!failure && !cancelled) {
+          setNotes('');
+          setIsListModalOpen(false);
+        }
+        await loadData();
+      }
 
-      setSummary({
-        transform_date: transformDate,
-        printed_at: new Date().toISOString(),
-        total_items: results.length,
-        total_quantity: selectedOutputItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
-        items: results
-          .map((result) => ({
-            reference_id: result?.reference_id || '-',
-            product_id: result?.output?.product_id || null,
-            product_code: result?.output?.product_code || '',
-            product_name: result?.output?.product_name || '-',
-            product_unit: selectedUnitByProductId.get(Number(result?.output?.product_id)) || '',
-            quantity: Number(result?.output?.quantity || 0)
-          }))
-      });
-
-      setOutputQuantities({});
-      setIngredientUsageByOutput({});
-      setNotes('');
-      setIsListModalOpen(false);
-      await loadData();
-
-      if (insufficientLines.length > 0) {
+      if (failure) {
+        const message = failure.error?.response?.data?.message || 'บันทึกการแปรรูปไม่สำเร็จ';
         alert(
-          `บันทึกสำเร็จ แต่มีวัตถุดิบไม่พอ ระบบตัดติดลบให้แล้ว:\n${insufficientLines.join('\n')}`
+          savedItems.length > 0
+            ? `บันทึกแล้ว ${savedItems.length} รายการ\n"${failure.item.product_name}" ไม่สำเร็จ: ${message}\nรายการที่เหลือยังอยู่ในฟอร์ม กดบันทึกอีกครั้งได้`
+            : message
         );
       }
     } catch (error) {
@@ -881,7 +529,7 @@ export const ProductionTransform = () => {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-2">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <button
               type="button"
               onClick={() => handleSelectTab('create')}
@@ -915,6 +563,17 @@ export const ProductionTransform = () => {
             >
               ตั้งค่าแปลงหน่วย
             </button>
+            <button
+              type="button"
+              onClick={() => handleSelectTab('packs')}
+              className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                activeTab === 'packs'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-50 text-gray-700 hover:bg-slate-100'
+              }`}
+            >
+              ตั้งค่าแพ็ค
+            </button>
           </div>
         </div>
 
@@ -924,6 +583,7 @@ export const ProductionTransform = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">วันที่แปรรูป</label>
             <input
               type="date"
+              max={bangkokDate()}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
               value={transformDate}
               onChange={(event) => setTransformDate(event.target.value)}
@@ -1088,19 +748,21 @@ export const ProductionTransform = () => {
                     productName: item.product_name,
                     productUnit: item.product_unit || '',
                     productCode: item.product_code || item.product_id || '',
+                    ...packFieldsFor(item.product_id),
                     productId: item.product_id || '',
                     producedAt: summary.transform_date || summary.printed_at,
                     referenceId: item.reference_id,
+                    transactionId: item.transaction_id,
                     branchName: user?.branch || '-',
                     departmentName: user?.department || '-',
                     quantityText: `+${Number(item.quantity || 0)}`,
                     quantityValue: Number(item.quantity || 0)
                   })),
-                  { layout: '3x2' }
+                  { layout: TRANSFORM_STICKER_LAYOUT }
                 )
               }
             >
-              พิมพ์สติกเกอร์ 3x2 นิ้ว
+              พิมพ์สติกเกอร์
             </button>
           </div>
         </div>
@@ -1108,6 +770,10 @@ export const ProductionTransform = () => {
 
         {activeTab === 'units' && (
           <ProductionUsageUnitTab departmentId={departmentId} onSaved={loadData} />
+        )}
+
+        {activeTab === 'packs' && (
+          <ProductionPackSizeTab products={outputProducts} packSizes={packSizes} onChange={handlePackSizeSaved} />
         )}
 
         {activeTab === 'history' && (
@@ -1167,18 +833,20 @@ export const ProductionTransform = () => {
                               productName: row.product_name,
                               productUnit: row.unit_abbr || row.unit_name || '',
                               productCode: row.product_code || row.product_id || '',
+                              ...packFieldsFor(row.product_id),
                               productId: row.product_id || '',
                               producedAt: row.effective_at || row.created_at,
                               referenceId: row.reference_id,
+                              transactionId: row.id,
                               branchName: row.branch_name,
                               departmentName: row.department_name,
                               quantityText: `+${Number(row.quantity || 0)} ${row.unit_abbr || row.unit_name || ''}`.trim(),
                               quantityValue: Number(row.quantity || 0)
-                            }], { layout: '3x2' })
+                            }], { layout: TRANSFORM_STICKER_LAYOUT })
                           }
                           className="ml-2 mt-1 text-xs text-emerald-700 hover:text-emerald-800"
                         >
-                          พิมพ์ 3x2 นิ้ว
+                          พิมพ์สติกเกอร์
                         </button>
                       </div>
                     </div>

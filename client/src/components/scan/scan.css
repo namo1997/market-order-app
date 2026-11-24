@@ -1,0 +1,63 @@
+/* การเคลื่อนไหวตอนสแกน: บอกว่า "สแกนแล้ว" ทันที แล้วหายไปเอง */
+@keyframes scan-pop-in {
+  0% { opacity: 0; transform: translateY(-8px) scale(0.96); }
+  60% { opacity: 1; transform: translateY(0) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes scan-fade-out {
+  to { opacity: 0; transform: translateY(-6px); visibility: hidden; }
+}
+
+@keyframes scan-flash {
+  0% { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+
+@keyframes scan-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+@keyframes scan-row-in {
+  0% { background-color: rgb(187 247 208); }
+  100% { background-color: transparent; }
+}
+
+.scan-toast {
+  animation: scan-pop-in 180ms ease-out both, scan-fade-out 300ms ease-in 2.4s forwards;
+}
+
+.scan-toast--sticky {
+  animation: scan-pop-in 180ms ease-out both, scan-fade-out 300ms ease-in 4.5s forwards;
+}
+
+.scan-toast--shake {
+  animation: scan-pop-in 180ms ease-out both, scan-shake 320ms ease-in-out 180ms, scan-fade-out 300ms ease-in 4.5s forwards;
+}
+
+.scan-flash {
+  animation: scan-flash 450ms ease-out forwards;
+}
+
+.scan-result-pop {
+  animation: scan-pop-in 180ms ease-out both;
+}
+
+.scan-row-new {
+  animation: scan-row-in 1.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan-toast,
+  .scan-toast--sticky,
+  .scan-toast--shake {
+    animation: scan-fade-out 1ms linear 3s forwards;
+  }
+  .scan-flash,
+  .scan-result-pop,
+  .scan-row-new {
+    animation: none;
+  }
+}

@@ -21,3 +21,20 @@ export const toBaseQuantity = (ingredient, quantity) => {
 };
 
 export const formatNumber = (value) => Number(value || 0).toLocaleString('th-TH', { maximumFractionDigits: 4 });
+
+// A1: server ตอบ 409 INGREDIENT_OVER_STOCK เมื่อวัตถุดิบที่จะตัดเกินยอดที่มี (มักกรอกผิดหน่วย)
+// คืนข้อความบรรทัดละวัตถุดิบ "ต้องใช้ X หน่วย / มี Y หน่วย" หรือ null ถ้าไม่ใช่กรณีนี้
+export const getOverStockLines = (error) => {
+  const data = error?.response?.data;
+  if (error?.response?.status !== 409 || data?.code !== 'INGREDIENT_OVER_STOCK') return null;
+  const rows = Array.isArray(data.over_stock) ? data.over_stock : [];
+  if (rows.length === 0) return data.message || 'วัตถุดิบไม่พอ';
+  return rows
+    .map((row) => {
+      const unit = String(row?.unit_label || '').trim();
+      const need = `${formatNumber(row?.required_quantity)} ${unit}`.trim();
+      const have = `${formatNumber(row?.available_quantity)} ${unit}`.trim();
+      return `- ${row?.product_name || '-'}: ใช้ ${need} / มี ${have}`;
+    })
+    .join('\n');
+};

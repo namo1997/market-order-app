@@ -1,6 +1,7 @@
 import * as withdrawModel from '../models/withdraw.model.js';
 import * as withdrawSourceMappingModel from '../models/withdraw-source-mapping.model.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
+import { findTransformSticker } from '../models/transform-sticker.model.js';
 
 const isAdminUser = (user) => ['admin', 'super_admin'].includes(user?.role);
 
@@ -37,6 +38,28 @@ export const getWithdrawTargets = async (req, res, next) => {
       data: rows,
       count: rows.length
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// สแกนสติกเกอร์แปรรูปในหน้าเบิก: คืนสินค้า + จำนวนต่อดวง
+export const getTransformSticker = async (req, res, next) => {
+  try {
+    if (!canUseWithdrawFeature(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'ไม่มีสิทธิ์ใช้งานการเบิกสินค้า'
+      });
+    }
+    const result = await findTransformSticker(req.params.code);
+    if (result.status === 'invalid') {
+      return res.status(400).json({ success: false, message: 'รหัสสติกเกอร์ไม่ถูกต้อง' });
+    }
+    if (result.status !== 'ok') {
+      return res.status(404).json({ success: false, message: 'ไม่พบสติกเกอร์นี้' });
+    }
+    res.json({ success: true, data: result.sticker });
   } catch (error) {
     next(error);
   }

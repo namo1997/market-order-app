@@ -769,7 +769,8 @@ export const createProductionTransform = async (req, res, next) => {
       output_product_id,
       output_quantity,
       ingredients,
-      notes
+      notes,
+      confirm_over_stock
     } = req.body || {};
 
     const normalizedDepartmentId = Number(department_id);
@@ -807,6 +808,7 @@ export const createProductionTransform = async (req, res, next) => {
       ingredients: resolvedIngredients,
       notes: notes ? String(notes) : '',
       createdBy: req.user?.id || null,
+      confirmOverStock: confirm_over_stock === true,
       allowedOutputGroupIds: Array.isArray(
         req.user?.allowed_product_group_ids ?? req.user?.allowed_supplier_ids
       )
@@ -828,6 +830,14 @@ export const createProductionTransform = async (req, res, next) => {
         : 'บันทึกการแปรรูปสินค้าเรียบร้อย'
     });
   } catch (error) {
+    if (error?.code === 'INGREDIENT_OVER_STOCK') {
+      return res.status(409).json({
+        success: false,
+        code: error.code,
+        message: error.message,
+        over_stock: Array.isArray(error.details) ? error.details : []
+      });
+    }
     const message = toProductionConfigErrorMessage(error);
     if (message) {
       return res.status(error?.statusCode || 400).json({

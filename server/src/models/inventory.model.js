@@ -6,7 +6,9 @@ import {
   roundQty,
   bangkokDateRangeToUtc,
   buildBangkokDateRangeSql,
-  BANGKOK_CONVERT_TZ
+  BANGKOK_CONVERT_TZ,
+  resolveStockCheckCountedAtUtc,
+  stockCheckCountedAtSql
 } from '../utils/stock-ledger.js';
 
 // ====================================
@@ -730,15 +732,18 @@ export const setInitialBalance = async ({
       [product_id, department_id, delta, current, target, `${notes} (ตั้งเป็น ${target}, เดิม ${current})`, created_by]
     );
 
-    await connection.query(
-      `UPDATE inventory_balance
-       SET quantity = ?, last_transaction_id = ?, last_updated = CURRENT_TIMESTAMP
-       WHERE product_id = ? AND department_id = ?`,
-      [target, txResult.insertId, product_id, department_id]
-    );
+    // A5: แถว initial เป็นยอดสัมบูรณ์ใน reflow → คำนวณ ledger ใหม่ให้ inventory_balance ตรงกับประวัติเสมอ
+    const recalculated = await recalculateLedgerBalances(connection, product_id, department_id);
 
     await connection.commit();
-    return { changed: true, id: txResult.insertId, balance_before: current, balance_after: target, delta };
+    return {
+      changed: true,
+      id: txResult.insertId,
+      balance_before: current,
+      balance_after: target,
+      delta,
+      new_inventory_balance: recalculated.quantity
+    };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1080,7 +1085,8 @@ export const getStockVarianceReport = async (date, filters = {}) => {
 
   // SQL fragment สำหรับ timestamp ของการนับสต็อก — เป็น column expression ล้วน ไม่มี user input
   // ใช้ CTE เพื่อคำนวณ system_quantity ครั้งเดียวและนำมาใช้ซ้ำ (แทนการ interpolate subquery ซ้ำในทุก clause)
-  const CHECK_TIMESTAMP_SQL = `COALESCE(sc2.updated_at, sc2.created_at, CONCAT(sc2.check_date, ' 23:59:59'))`;
+  // เวลานับเดียวกับตอน apply (A7): เวลากรอกครั้งแรก บีบให้อยู่ในวันที่นับ
+  const CHECK_TIMESTAMP_SQL = stockCheckCountedAtSql('sc2');
 
   // CTE: คำนวณ system_quantity ณ เวลาที่นับ สำหรับทุก stock_check ในวันที่ระบุ
   // ทำให้ไม่ต้องใช้ string interpolation ใน WHERE / ORDER BY clause ของ main query
@@ -1229,9 +1235,8 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
         )
       : [];
 
-    // ใช้ timestamp ตอนบันทึกเช็คจริง เพื่อคำนวณส่วนต่างที่จุดเวลาเช็ค
-    const checkTimestampExpr = "COALESCE(sc.updated_at, sc.created_at, CONCAT(sc.check_date, ' 23:59:59'))";
-    const checkTimestampFormattedExpr = `DATE_FORMAT(${checkTimestampExpr}, '%Y-%m-%d %H:%i:%s')`;
+    // A7: เวลานับ = เวลาที่กรอกยอดครั้งแรก (created_at) บีบให้อยู่ในวันที่นับ (ดู resolveStockCheckCountedAtUtc)
+    // ไม่ใช้ updated_at: แก้ตัวเลข/บันทึกฟอร์มซ้ำทีหลัง ทำให้ยอดขายระหว่างนั้นถูกลบล้าง
 
     // ดึงเฉพาะ "ยอดเช็คล่าสุด" ของแต่ละสินค้าในวันนั้น
     // (กันเคสข้อมูลซ้ำใน stock_checks แล้วถูกปรับยอดซ้ำ)
@@ -1240,7 +1245,7 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
         sc.id AS stock_check_id,
         sc.product_id,
         sc.stock_quantity,
-        ${checkTimestampFormattedExpr} AS checked_at
+        DATE_FORMAT(sc.created_at, '%Y-%m-%d %H:%i:%s') AS created_at_text
       FROM stock_checks sc
       WHERE sc.check_date = ? AND sc.department_id = ?
         AND sc.id = (
@@ -1267,7 +1272,8 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
     const skippedAlreadyApplied = [];
 
     for (const check of checks) {
-      const checkTimestamp = check.checked_at || `${date} 23:59:59`;
+      const checkTimestamp = resolveStockCheckCountedAtUtc(date, check.created_at_text);
+      check.checked_at = checkTimestamp;
 
       // ล็อกยอดคงเหลือของสินค้านี้ก่อนอ่าน ledger เพื่อกันชนกับ createTransaction / sale sync (INV-03)
       await lockBalanceRow(connection, check.product_id, departmentId);
@@ -1453,7 +1459,8 @@ export const createProductionTransform = async ({
   ingredients = [],
   notes,
   createdBy,
-  allowedOutputGroupIds = []
+  allowedOutputGroupIds = [],
+  confirmOverStock = false
 }) => {
   await ensureInventoryTables();
 
@@ -1473,6 +1480,12 @@ export const createProductionTransform = async ({
   const normalizedTransformDate = String(transformDate || '').trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTransformDate)) {
     const error = new Error('Invalid transform date');
+    error.statusCode = 400;
+    throw error;
+  }
+  // B3: วันที่อนาคตทำให้รายการไปอยู่หลังการนับ/ยอดตั้งต้นที่ยังไม่เกิด ยอดเพี้ยน
+  if (normalizedTransformDate > getBangkokDateKey()) {
+    const error = new Error('วันที่แปรรูปต้องไม่เกินวันนี้');
     error.statusCode = 400;
     throw error;
   }
@@ -1547,8 +1560,9 @@ export const createProductionTransform = async ({
     let ingredientRows = [];
     if (ingredientProductIds.length > 0) {
       const [rows] = await connection.query(
-        `SELECT p.id, p.name
+        `SELECT p.id, p.name, COALESCE(u.abbreviation, u.name, '') AS unit_label
          FROM products p
+         LEFT JOIN units u ON u.id = p.unit_id
          WHERE p.id IN (${ingredientProductIds.map(() => '?').join(', ')})
            AND p.is_active = true`,
         ingredientProductIds
@@ -1582,11 +1596,26 @@ export const createProductionTransform = async ({
         insufficientIngredients.push({
           product_id: productId,
           product_name: row.name,
+          unit_label: row.unit_label || '',
           required_quantity: requiredQty,
           available_quantity: currentQty,
-          shortage_quantity: requiredQty - currentQty
+          shortage_quantity: roundQty(requiredQty - currentQty)
         });
       }
+    }
+
+    // A1: ตัดวัตถุดิบเกินยอดที่มี มักเป็นกรอกผิดหน่วย (เช่น 1,200 มล. แต่สต๊อกเป็นแกลลอน → ตัด 1,200 แกลลอน)
+    // ต้องให้ผู้ใช้เห็นจำนวน+หน่วยที่จะตัดจริงแล้วกดยืนยันก่อน จึงบันทึก (ตัดติดลบ) ได้
+    if (insufficientIngredients.length > 0 && confirmOverStock !== true) {
+      const error = new Error(
+        `วัตถุดิบมีไม่พอ: ${insufficientIngredients
+          .map((row) => `${row.product_name} ต้องใช้ ${row.required_quantity} ${row.unit_label} มี ${row.available_quantity} ${row.unit_label}`.trim())
+          .join(', ')}`
+      );
+      error.statusCode = 409;
+      error.code = 'INGREDIENT_OVER_STOCK';
+      error.details = insufficientIngredients;
+      throw error;
     }
 
     const ingredientMovements = [];

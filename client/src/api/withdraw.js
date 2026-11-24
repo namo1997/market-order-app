@@ -42,6 +42,12 @@ export const withdrawAPI = {
     return response.data;
   },
 
+  // สติกเกอร์แปรรูป: รหัส 12 หลักจากบาร์โค้ด/QR
+  getSticker: async (code) => {
+    const response = await apiClient.get(`/withdraw/sticker/${encodeURIComponent(String(code || '').trim())}`);
+    return response.data;
+  },
+
   getSourceMappings: async () => {
     const response = await apiClient.get('/withdraw/source-mappings');
     return response.data;
