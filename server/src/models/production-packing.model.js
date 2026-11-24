@@ -95,7 +95,7 @@ const linesCache = new Map(); // getOrderItems → Map(key → { at, promise })
 
 export const clearPackingLinesCache = () => linesCache.clear();
 
-const loadBranchLines = async ({ date, groupIds, getOrderItems, now = Date.now() }) => {
+export const loadPackingOrderLines = async ({ date, groupIds, getOrderItems = defaultGetOrderItems, now = Date.now() }) => {
   // ไม่มีกลุ่ม = ไม่มีสิทธิ์เห็นใบสั่งใด ๆ (ห้ามส่ง [] เพราะ getOrderItemsByDate จะคืนทุกกลุ่ม)
   if (!Array.isArray(groupIds) || groupIds.length === 0) return [];
   const key = `${date}|${[...groupIds].map(Number).sort((a, b) => a - b).join(',')}`;
@@ -169,7 +169,7 @@ export const getPackingOverview = async ({ date, groupIds, db, getOrderItems = d
   db = db || await defaultDb();
   await ensureProductionPackingTables(db);
   const [branches, packed, statuses] = await Promise.all([
-    loadBranchLines({ date, groupIds, getOrderItems }),
+    loadPackingOrderLines({ date, groupIds, getOrderItems }),
     loadPacked(db, date),
     loadStatuses(db, date)
   ]);
@@ -181,7 +181,7 @@ export const getPackingOverview = async ({ date, groupIds, db, getOrderItems = d
 export const getBranchPacking = async ({ date, branchId, groupIds, db, getOrderItems = defaultGetOrderItems }) => {
   db = db || await defaultDb();
   await ensureProductionPackingTables(db);
-  const branches = await loadBranchLines({ date, groupIds, getOrderItems });
+  const branches = await loadPackingOrderLines({ date, groupIds, getOrderItems });
   const branch = branches.find((row) => row.branch_id === Number(branchId));
   if (!branch) return null;
   const [packed, statuses, packs] = await Promise.all([
@@ -239,7 +239,7 @@ export const scanStickerForBranch = async ({
     return { status: 'duplicate', sticker, packed_to: existing[0].branch_name || null };
   }
 
-  const branches = await loadBranchLines({ date, groupIds, getOrderItems });
+  const branches = await loadPackingOrderLines({ date, groupIds, getOrderItems });
   const branch = branches.find((row) => row.branch_id === Number(branchId));
   const line = branch?.lines.find((row) => row.product_id === sticker.product_id);
   if (!line) return { status: 'not_in_order', sticker };
@@ -276,7 +276,7 @@ export const adjustPackedManually = async ({
   await ensureProductionPackingTables(db);
   const change = round(delta);
   if (!Number.isFinite(change) || change === 0) return { status: 'invalid' };
-  const branches = await loadBranchLines({ date, groupIds, getOrderItems });
+  const branches = await loadPackingOrderLines({ date, groupIds, getOrderItems });
   const branch = branches.find((row) => row.branch_id === Number(branchId));
   const line = branch?.lines.find((row) => row.product_id === Number(productId));
   if (!line) return { status: 'not_in_order' };

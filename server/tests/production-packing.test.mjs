@@ -153,3 +153,48 @@ test('order lines are cached briefly so taps and scans skip the heavy order quer
   await getBranchPacking({ ...base, db, getOrderItems: counting, branchId: 1 });
   assert.equal(calls, 2);
 });
+
+test('production summary: ordered / produced / short / packed per product, ingredients used, scoped to the group', async () => {
+  const { getProductionSummary, buildProductionSummary } = await import('../src/models/production-summary.model.js');
+  clearPackingLinesCache();
+  const queries = [];
+  const db = {
+    query: async (sql, params = []) => {
+      queries.push({ sql, params });
+      if (/CREATE TABLE/.test(sql)) return [[]];
+      if (/FROM production_packing_scans s/.test(sql)) {
+        return [[
+          { product_id: 176, product_name: 'น้ำส้มตำลาว', unit: 'ก.ล.', packed: '2' },
+          { product_id: 999, product_name: 'ของกลุ่มอื่น', unit: '', packed: '5' }
+        ]];
+      }
+      if (/-SUM\(i\.quantity\) AS used/.test(sql)) {
+        return [[{ product_id: 5, product_name: 'ไก่สด', unit: 'ตัว', used: '35' }]];
+      }
+      if (/SUM\(o\.quantity\) AS produced/.test(sql)) {
+        // วันไทย 10 พ.ย. = 9 พ.ย. 17:00 UTC ถึง 10 พ.ย. 17:00 UTC; กลุ่ม 8
+        assert.deepEqual(params, ['2026-11-09 17:00:00', '2026-11-10 17:00:00', 8]);
+        return [[
+          { product_id: 176, product_name: 'น้ำส้มตำลาว', unit: 'ก.ล.', produced: '2', lots: 1 },
+          { product_id: 300, product_name: 'ไก่ย่าง', unit: 'ตัว', produced: '35', lots: 3 }
+        ]];
+      }
+      throw new Error(`unexpected SQL: ${sql}`);
+    }
+  };
+  const summary = await getProductionSummary({ date: '2026-11-10', groupIds: [8], db, getOrderItems });
+  const byId = Object.fromEntries(summary.lines.map((line) => [line.product_id, line]));
+  // สั่งรวมทุกสาขา (ไม่รวมสาขาส่วนกลาง): น้ำส้ม 2, หน่อไม้ 10, เนื้อ 15
+  assert.deepEqual([byId[176].ordered, byId[176].produced, byId[176].short, byId[176].packed], [2, 2, 0, 2]);
+  assert.deepEqual([byId[146].ordered, byId[146].produced, byId[146].short], [10, 0, 10]);
+  assert.deepEqual([byId[1053].ordered, byId[1053].short], [15, 15]);
+  // ผลิตโดยไม่มีใบสั่งก็แสดง
+  assert.deepEqual([byId[300].ordered, byId[300].produced, byId[300].lots, byId[300].short], [0, 35, 3, 0]);
+  assert.equal(byId[999], undefined, 'packed rows of other groups are not mixed in');
+  assert.equal(summary.short_count, 2);
+  assert.deepEqual(summary.ingredients, [{ product_id: 5, product_name: 'ไก่สด', unit: 'ตัว', used: 35 }]);
+  // ไม่มีกลุ่ม = ไม่เห็นอะไร และไม่ query
+  const empty = await getProductionSummary({ date: '2026-11-10', groupIds: [], db: { query: () => assert.fail('no query') } });
+  assert.deepEqual(empty.lines, []);
+  assert.equal(buildProductionSummary({ date: 'x' }).short_count, 0);
+});
