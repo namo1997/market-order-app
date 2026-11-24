@@ -227,6 +227,7 @@ test('sales sync coalesces same-date overlapping attempts and returns a schedule
 test('sales sync success survives a failing status write and stores only a small summary', async () => {
   const callbacks = [], saved = [];
   let syncs = 0, failWrite = true;
+  // INV-11: เขียนสถานะสำเร็จแบบมีสรุปไม่ได้ → เขียนสถานะสำเร็จแบบสั้นแทน (ไม่ตกเป็น pending/retry)
   const bigResult = {
     success: true,
     data: {
@@ -249,11 +250,12 @@ test('sales sync success survives a failing status write and stores only a small
   const stop = cron.initSyncJob();
   await callbacks[0]();
   assert.equal(syncs, 1);
-  assert.equal(saved.length, 0, 'failed write is swallowed, not turned into a retry');
+  assert.equal(saved.length, 1, 'failed write is swallowed, not turned into a retry');
+  assert.equal(JSON.parse(saved[0]).state, 'success');
   await callbacks[0]();
-  const status = JSON.parse(saved[0]);
+  const status = JSON.parse(saved.at(-1));
   assert.equal(status.state, 'success');
-  assert.ok(saved[0].length < 2000, `status must stay small (${saved[0].length})`);
+  assert.ok(saved.at(-1).length < 2000, `status must stay small (${saved.at(-1).length})`);
   assert.equal(status.last_result.missing_recipes_count, 5000);
   assert.equal(status.last_result.applied_deductions, 178);
   assert.ok(status.last_result.missing_recipe_samples.length <= 5);

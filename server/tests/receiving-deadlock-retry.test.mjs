@@ -112,8 +112,15 @@ async function receivingHarness({ deadlockAttempts = [1] } = {}) {
     if (q.startsWith('SELECT quantity FROM inventory_balance')) {
       return [[{ quantity: db.balance[`${params[0]}|${params[1]}`] }]];
     }
+    if (q.startsWith('SELECT department_id, transaction_type, quantity FROM inventory_transactions')) {
+      // A4: เส้นทางที่เคยลงสต็อกของ order item นี้ (แก้/ยกเลิกย้อนแผนกเดิม)
+      return [db.transactions
+        .filter((tx) => String(tx.reference_id) === String(params[0]) && Number(tx.product_id) === Number(params[1]))
+        .map((tx) => ({ department_id: tx.department_id, transaction_type: tx.transaction_type, quantity: tx.quantity }))];
+    }
     if (q.startsWith('INSERT INTO inventory_transactions')) {
-      db.transactions.push({ product_id: params[0], quantity: params[3], before: params[4], after: params[5] });
+      db.transactions.push({ product_id: params[0], quantity: params[3], before: params[4], after: params[5],
+        department_id: params[1], transaction_type: params[2], reference_id: params[6] });
       return [{ insertId: db.transactions.length }];
     }
     if (q.startsWith('INSERT INTO inventory_balance')) {
