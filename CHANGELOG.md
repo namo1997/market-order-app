@@ -2,6 +2,13 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-11-27 — ปุ่ม "รับสินค้า (ระบบใหม่)" แยกจากปุ่มเดิม ทุกแผนกเห็น — สถานะ: **รอเจ้าของอนุมัติขึ้น Production**
+
+- เจ้าของสั่ง "เพิ่มปุ่มระบบใหม่แยก": หน้าเลือกฟังก์ชั่นแสดงการ์ด "รับสินค้า" เดิม (`/order/receive`) ตามเดิม และเพิ่มการ์ด "รับสินค้า (ระบบใหม่)" (`/receiving`) ถัดไป ทุกบทบาท/แผนก
+- `client/src/pages/user/FunctionSelect.jsx`: ตอน `LEGACY_RECEIVING_PRIMARY = true` ใส่ทั้งสองการ์ด (false = ระยะที่ 1 เหลือการ์ดใหม่การ์ดเดียวเหมือนเดิม); คำอธิบายการ์ดใหม่ตัด "(แทนเมนูรับสินค้าเดิม)" ออก
+- ไม่แตะ server, ตาราง, สวิตช์ `LEGACY_RECEIVING_WRITES_ENABLED`; ระบบใหม่มีอยู่ใน Production แล้ว (ตาราง `receiving_*`, `RECEIVING_OCR_MODEL`) แต่ไม่มีการเรียก `/api/receiving-*` ตั้งแต่ 24 พ.ย. เพราะไม่มีปุ่ม
+- เทสต์ `client/tests/legacy-receiving-hidden.test.mjs` เปลี่ยนจาก "ซ่อนการ์ดใหม่" เป็น "สองการ์ด เดิมอยู่ก่อน"; เอกสาร `docs/receiving-rollout.md`
+
 ## 2026-11-24 — ปล่อย Production: สติกเกอร์/สแกนเบิก/จัดของ/สรุปการผลิต + แก้สต็อก A1–A7 + เปิดยอดสต็อกเป็น 0 — สถานะ: **Production (deployment `5c439cba-672f-4f7b-a2d0-c889100d8266`, commit `94c4a674`)**
 
 - เจ้าของสั่ง "ขึ้น Production เลย" (+ เพิ่มหน้าสรุปการผลิตก่อนขึ้น); รวม `market/transform-print-fix-20261113` (a7957549) เข้า `market/integration-20261124` จาก `market/production-base` 9c24dc5d (= Production 0bf9f79f / 9516b460 ตรวจ hash runtime 486 ไฟล์ตรงก่อนปล่อย); conflict แค่ CHANGELOG; ปรับเทสต์ 2 จุดให้เข้ากับ INV-11 (เขียนสถานะสั้นเมื่อสรุปเขียนไม่ได้) และ ORD-10 (fake DB ตอบ query เส้นทางรับของ A4); fastcheck `integration-1124` server 766 ×2, client 876 ×2, pilot 55 ×2

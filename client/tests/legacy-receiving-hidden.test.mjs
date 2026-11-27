@@ -52,11 +52,12 @@ test('switch: owner moved staff back to the old receiving menu (2026-10-21)', ()
 });
 
 for (const [name, auth] of [['staff', { user: { id: 5, role: 'user' }, isAdmin: false, canUseStockCheck: true, canViewStockBalance: true }], ['admin', { user: { id: 1, role: 'admin' }, isAdmin: true, canUseStockCheck: true, canViewStockBalance: true }]]) {
-  test(`old menu primary (${name}): one "รับสินค้า" card to the old page, new-system card hidden`, async () => {
+  test(`old menu primary (${name}): old "รับสินค้า" card plus a separate new-system card (owner 2026-11-27)`, async () => {
     const html = await render('../src/pages/user/FunctionSelect.jsx', 'FunctionSelect', auth, {}, true);
     assert.ok(html.includes('ตรวจรับสินค้าที่สั่งซื้อไว้'));
-    assert.ok(!html.includes('รับสินค้า (ระบบใหม่)'));
-    assert.equal(html.split('<h2').filter(part => part.includes('รับสินค้า')).length, 1);
+    assert.ok(html.includes('รับสินค้า (ระบบใหม่)'));
+    assert.ok(html.indexOf('ตรวจรับสินค้าที่สั่งซื้อไว้') < html.indexOf('รับสินค้า (ระบบใหม่)'), 'old card stays first');
+    assert.equal(html.split('<h2').filter(part => part.includes('รับสินค้า')).length, 2);
   });
   test(`old menu primary (${name}): /order/receive renders the old page with no warning banner`, async () => {
     const html = await render('../src/pages/user/LegacyReceivingGate.jsx', 'LegacyReceivingGate', auth, { children: '[[OLD-PAGE]]' }, true);

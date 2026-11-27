@@ -105,8 +105,9 @@ export const FunctionSelect = () => {
     icon: ShoppingIcon
   });
 
-  // Which receiving card staff see is set by LEGACY_RECEIVING_PRIMARY; see docs/receiving-rollout.md.
-  actions.push(LEGACY_RECEIVING_PRIMARY ? {
+  // LEGACY_RECEIVING_PRIMARY: old card first, new-system card beside it (owner 2026-11-27);
+  // false = phase 1, new-system card only. See docs/receiving-rollout.md.
+  if (LEGACY_RECEIVING_PRIMARY) actions.push({
     title: 'รับสินค้า',
     description: 'เมนูหลักปัจจุบันสำหรับตรวจรับสินค้าที่สั่งซื้อไว้',
     path: LEGACY_RECEIVING_PATH,
@@ -114,9 +115,10 @@ export const FunctionSelect = () => {
     tone: 'border-cyan-200 bg-cyan-50/70 hover:border-cyan-300',
     iconTone: 'bg-cyan-100 text-cyan-700',
     icon: ReceiveIcon
-  } : {
+  });
+  actions.push({
     title: 'รับสินค้า (ระบบใหม่)',
-    description: 'ถ่ายบิล ตรวจจำนวน และเซ็นรับสินค้า (แทนเมนูรับสินค้าเดิม)',
+    description: 'ถ่ายบิล ตรวจจำนวน และเซ็นรับสินค้า',
     path: NEW_RECEIVING_PATH,
     group: 'daily',
     tone: 'border-amber-200 bg-amber-50/70 hover:border-amber-300',
