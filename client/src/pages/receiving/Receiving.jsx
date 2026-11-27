@@ -215,7 +215,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     finally { followLock.current = false; setFollowBusy(false); }
   };
   const nextShop = () => {
-    const currentKey = doc.product_group_id ? `pg:${doc.product_group_id}` : doc.supplier_master_id ? `sm:${doc.supplier_master_id}`
+    const currentKey = doc.product_group_id ? `pg:${doc.product_group_id}${doc.supplier_master_id ? `:sm:${doc.supplier_master_id}` : ''}` : doc.supplier_master_id ? `sm:${doc.supplier_master_id}`
       : groups.find(group => group.supplier_name === doc.supplier_name_text)?.supplier_key || selected;
     const next = pendingGroups.find(group => group.supplier_key !== currentKey);
     setSelected(next?.supplier_key || ''); setTab('expected'); setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0);

@@ -1,4 +1,5 @@
 import { createReceivingError, formatQuantity, validateQuantityOrNull, validateMoneyOrNull, validateUnitPriceOrNull } from '../services/receiving-ocr.service.js';
+import { queueSupplierKey } from './receiving-queue-policy.js';
 
 // Legacy /orders/receiving has authenticate only, with no role restriction.
 export const canReceiveBranch = user => Number.isSafeInteger(Number(user?.id)) && Number(user.id) > 0;
@@ -143,7 +144,7 @@ export function aggregateBranchQueue(groups, contextRows = []) {
   // Keep completed siblings of pending products in the allocation basis, as legacy does.
   // Their historical due dates must not make a pending shop overdue.
   for (const row of contextRows) {
-    const supplier = row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none';
+    const supplier = queueSupplierKey(row);
     const shop = shops.get(`${row.branch_id}:${supplier}`);
     if (!shop || !shop.items.some(item => groupKey(item) === groupKey(row)) || shop.items.some(item => item.order_item_id === Number(row.order_item_id))) continue;
     shop.has_partial ||= cents(row.received_quantity) > 0n;

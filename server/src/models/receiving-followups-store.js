@@ -10,7 +10,7 @@ const mapRow = row => ({ ...row, pending_items: JSON.parse(row.pending_items_jso
   pending_items_json: undefined, created_at: `${String(row.created_at).replace(' ', 'T')}Z`,
   updated_at: `${String(row.updated_at).replace(' ', 'T')}Z` });
 const requiredReceiving = ` AND NOT EXISTS (SELECT 1 FROM product_groups skipped
-  WHERE receiving_followups.supplier_key = CONCAT('pg:', skipped.id)
+  WHERE (receiving_followups.supplier_key = CONCAT('pg:', skipped.id) OR receiving_followups.supplier_key LIKE CONCAT('pg:', skipped.id, ':sm:%'))
     AND COALESCE(skipped.skip_receiving_required, true) = true)
   AND NOT EXISTS (SELECT 1 FROM receiving_issues si JOIN receiving_documents sd ON sd.id=si.document_id
     JOIN product_groups sg ON sg.id=sd.product_group_id

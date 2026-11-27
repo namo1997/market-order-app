@@ -2,6 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-11-27 — คิวรับของแยก "ซัพอื่น" เป็นร้านจริง — สถานะ: **Local (ยังไม่ deploy)**
+
+- เจ้าของ: "ไก่บ้าน คือของ เบทาโก" → เลือกแบบที่ 1 (แก้หน้ารับของ ไม่แตะหน้าสั่งของ)
+- กลุ่มรวม `config/receiving-split-suppliers.js` (12, 15, 16, 17, 18 = กลุ่ม "ซัพอื่น") แยกคิวตาม `products.supplier_master_id` เป็น key `pg:<กลุ่ม>:sm:<ซัพ>` ชื่อร้าน = ชื่อในทะเบียนซัพ; สินค้าที่ยังไม่ผูกซัพอยู่ใต้ชื่อกลุ่มเดิม; กลุ่มอื่นไม่เปลี่ยน
+- ใบรับที่สร้างจากร้านที่แยกได้ทั้ง `product_group_id` และ `supplier_master_id` (ชื่อย่อในบิลเรียนรู้ต่อซัพจริง `sm:`); lead time ใช้ของร้าน ถ้าไม่มีใช้ของกลุ่ม; ติดตาม/แจ้งเตือนกลุ่มไม่บังคับรับครอบ key ใหม่
+- แก้: `receiving-queue-policy.js`, `receiving-branch-policy.js`, `receiving-documents-helpers.js` (join `supplier_masters`), `receiving-followups.controller.js` (regex), `receiving-followups-store.js`, `receiving-push.js`, client `start-receiving.js`, `draft-reuse.js`, `Receiving.jsx`; เทสต์ใหม่ `server/tests/receiving-split-suppliers.test.mjs`, `client/tests/receiving-split-suppliers.test.mjs`
+- fastcheck `market-queue-by-supplier` เต็ม 2 รอบผ่าน (client 878/878, pilot 55/55 ×2); ตัวอย่างในเครื่องด้วยข้อมูลจริงวันนี้แบบอ่านอย่างเดียว ภาพ SSD `reports/queue-by-supplier-demo-20261127/`
+- ค้าง: ข้อมูลซัพที่ผูกผิด/ยังไม่ผูก (คอหมูย่างผูกเบทาโกรแต่บิลเป็น CNF; ไส้อ่อน/สะโพกซอย/ขาบี/ปีกบน ฯลฯ ยังไม่ผูก) ต้องแก้ทะเบียนก่อนหรือพร้อมขึ้น Production; ไก่บ้านสดค้าง 75 วัน
+
 ## 2026-11-27 — ปุ่ม "รับสินค้า (ระบบใหม่)" แยกจากปุ่มเดิม ทุกแผนกเห็น — สถานะ: **Production 27 พ.ย. 2569 (deployment `cd4077ba-c4ca-4dbb-9309-4c57053c1f2e`, commit `afda3ef1`)**
 
 - เจ้าของสั่ง "ขึ้นเลย"; fastcheck `market-receiving-new-button-20261127` เต็ม 2 รอบ server 766/766, client 876/876, pilot 55/55

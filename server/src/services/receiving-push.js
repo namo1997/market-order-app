@@ -41,7 +41,7 @@ export function createPushDispatcher({ db, fcm, discoverOverdue = async () => {}
         LEFT JOIN receiving_push_deliveries x ON x.followup_id=f.id AND x.token_hash=p.token_hash
         WHERE f.status='open'
         AND NOT EXISTS (SELECT 1 FROM product_groups skipped
-          WHERE f.supplier_key = CONCAT('pg:', skipped.id) AND COALESCE(skipped.skip_receiving_required, true) = true)
+          WHERE (f.supplier_key = CONCAT('pg:', skipped.id) OR f.supplier_key LIKE CONCAT('pg:', skipped.id, ':sm:%')) AND COALESCE(skipped.skip_receiving_required, true) = true)
         AND NOT EXISTS (SELECT 1 FROM receiving_issues si JOIN receiving_documents sd ON sd.id=si.document_id
           JOIN product_groups sg ON sg.id=sd.product_group_id
           WHERE f.supplier_key = CONCAT('issue:', si.id) AND COALESCE(sg.skip_receiving_required, true) = true) AND d.branch_id=f.branch_id AND d.is_active=true AND b.is_active=true
@@ -61,7 +61,7 @@ export function createPushDispatcher({ db, fcm, discoverOverdue = async () => {}
           JOIN branches b ON b.id=d.branch_id
           WHERE f.id=? AND p.token_hash=? AND p.user_id=? AND f.status='open'
         AND NOT EXISTS (SELECT 1 FROM product_groups skipped
-          WHERE f.supplier_key = CONCAT('pg:', skipped.id) AND COALESCE(skipped.skip_receiving_required, true) = true)
+          WHERE (f.supplier_key = CONCAT('pg:', skipped.id) OR f.supplier_key LIKE CONCAT('pg:', skipped.id, ':sm:%')) AND COALESCE(skipped.skip_receiving_required, true) = true)
         AND NOT EXISTS (SELECT 1 FROM receiving_issues si JOIN receiving_documents sd ON sd.id=si.document_id
           JOIN product_groups sg ON sg.id=sd.product_group_id
           WHERE f.supplier_key = CONCAT('issue:', si.id) AND COALESCE(sg.skip_receiving_required, true) = true)

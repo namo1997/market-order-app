@@ -15,7 +15,8 @@ export const selectedIdentity = supplier => supplier.supplier_master_id
   : { product_group_id: supplier.product_group_id };
 export const groupIdentity = group => {
   const supplier = group?.supplier_key?.split(':');
-  return supplier?.[0] === 'pg' ? { product_group_id: Number(supplier[1]) }
+  // `pg:<group>:sm:<supplier>` = a catch-all group split per real supplier: keep both.
+  return supplier?.[0] === 'pg' ? { product_group_id: Number(supplier[1]), ...(supplier[2] === 'sm' ? { supplier_master_id: Number(supplier[3]) } : {}) }
     : supplier?.[0] === 'sm' ? { supplier_master_id: Number(supplier[1]) } : {};
 };
 export const createPayload = ({ kind = 'bill', date, user, name, ids, identity = {} }) => ({

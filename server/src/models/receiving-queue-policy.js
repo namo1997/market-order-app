@@ -1,5 +1,20 @@
 import { addDaysToDateKey, toBangkokDateKey } from '../utils/bangkok-date.js';
 import { formatQuantity } from '../services/receiving-ocr.service.js';
+import { RECEIVING_SPLIT_BY_SUPPLIER_GROUP_IDS } from '../config/receiving-split-suppliers.js';
+
+// Shop identity in the queue: `pg:<group>`; catch-all groups split per real supplier
+// as `pg:<group>:sm:<supplier_master>` (see config/receiving-split-suppliers.js).
+const splitSupplierId = row => {
+  const groupId = Number(row?.product_group_id);
+  const supplierId = Number(row?.product_supplier_master_id);
+  return RECEIVING_SPLIT_BY_SUPPLIER_GROUP_IDS.has(groupId) && Number.isInteger(supplierId) && supplierId > 0 ? supplierId : null;
+};
+export const queueSupplierKey = row => {
+  if (!row?.product_group_id) return 'none';
+  const supplierId = splitSupplierId(row);
+  return `pg:${Number(row.product_group_id)}${supplierId ? `:sm:${supplierId}` : ''}`;
+};
+export const queueSupplierName = row => String((splitSupplierId(row) && row.product_supplier_name) || row?.product_group_name || 'ไม่ระบุซัพพลายเออร์').trim();
 
 export const lookbackDays = (value) => {
   const days = Number(value ?? 7);
@@ -17,22 +32,23 @@ const quantity = value => `${value / 100n}.${String(value % 100n).padStart(2, '0
 export function groupQueue(rows, targetDate, leads = []) {
   const leadMap = new Map(leads.map(row => [row.supplier_key, Number(row.lead_days)]));
   const groups = new Map();
-  const shopKey = row => `${row.branch_id}:${row.department_id}:${row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none'}`;
+  const shopKey = row => `${row.branch_id}:${row.department_id}:${queueSupplierKey(row)}`;
   // Include fully received sibling orders when deciding if a shop is partially received.
   const receivedShops = new Set(rows.filter(row => hundredths(row.received_quantity) > 0n).map(shopKey));
   for (const row of rows) {
     const ordered = hundredths(row.quantity_ordered);
     const received = hundredths(row.received_quantity);
     if (ordered <= received) continue;
-    const supplier_key = row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none';
+    const supplier_key = queueSupplierKey(row);
     const key = `${row.branch_id}:${row.department_id}:${supplier_key}`;
-    const lead_days = leadMap.get(supplier_key) || 0;
+    // A split shop falls back to its group's lead time until one is set for the shop itself.
+    const lead_days = leadMap.get(supplier_key) || leadMap.get(supplier_key.replace(/:sm:\d+$/, '')) || 0;
     const order_date = toBangkokDateKey(row.order_date) || targetDate;
     const due_date = addDaysToDateKey(order_date, lead_days);
     const optional = isOptionalReceiving(row);
     const due_status = due_date < targetDate ? (optional ? 'due_today' : 'overdue') : due_date === targetDate ? 'due_today' : 'upcoming';
     if (!groups.has(key)) groups.set(key, { supplier_key,
-      supplier_name: String(row.product_group_name || 'ไม่ระบุซัพพลายเออร์'),
+      supplier_name: queueSupplierName(row),
       branch_id: Number(row.branch_id), department_id: Number(row.department_id),
       lead_days, items: [], due_date, due_status, has_partial: false, receiving_optional: optional });
     const group = groups.get(key);
@@ -58,7 +74,7 @@ export function groupQueue(rows, targetDate, leads = []) {
 // Keep completed shops as summary-only entries so over-receipts are counted
 // even when that shop has no remaining work. Internal allocation is unchanged.
 export function withReceiptSummary(queue, rows, branchScope = false) {
-  const key = row => `${row.branch_id}:${branchScope ? '' : row.department_id}:${row.supplier_key || (row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none')}`;
+  const key = row => `${row.branch_id}:${branchScope ? '' : row.department_id}:${row.supplier_key || queueSupplierKey(row)}`;
   const summaries = new Map();
   for (const row of rows) {
     if (!Number(row.has_confirmed_receipt)) continue;
@@ -76,8 +92,8 @@ export function withReceiptSummary(queue, rows, branchScope = false) {
     let group = result.find(group => key(group) === shopKey);
     if (!group) {
       const { row } = summary;
-      group = { supplier_key: row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none',
-        supplier_name: String(row.product_group_name || 'ไม่ระบุซัพพลายเออร์'),
+      group = { supplier_key: queueSupplierKey(row),
+        supplier_name: queueSupplierName(row),
         branch_id: Number(row.branch_id), department_id: branchScope ? null : Number(row.department_id),
         ...(branchScope ? { scope: 'branch' } : {}), summary_only: true, items: [],
         ...(isOptionalReceiving(row) ? { receiving_optional: true } : {}) };

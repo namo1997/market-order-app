@@ -15,7 +15,7 @@ export const endpoint = action => async (req, res, next) => {
 export const create = endpoint(async req => {
   const body = req.body || {};
   const note = body.note ?? '';
-  if (typeof note !== 'string' || note.length > 300 || !/^(pg:[1-9]\d*|none)$/.test(body.supplier_key || '')) {
+  if (typeof note !== 'string' || note.length > 300 || !/^(pg:[1-9]\d*(:sm:[1-9]\d*)?|none)$/.test(body.supplier_key || '')) {
     throw createReceivingError('VALIDATION_FAILED', 'ร้านหรือหมายเหตุไม่ถูกต้อง');
   }
   const scope = await resolveActorScope(pool, req.user);
