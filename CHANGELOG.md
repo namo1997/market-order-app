@@ -2,7 +2,11 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
-## 2026-11-27 — ปุ่ม "รับสินค้า (ระบบใหม่)" แยกจากปุ่มเดิม ทุกแผนกเห็น — สถานะ: **รอเจ้าของอนุมัติขึ้น Production**
+## 2026-11-27 — ปุ่ม "รับสินค้า (ระบบใหม่)" แยกจากปุ่มเดิม ทุกแผนกเห็น — สถานะ: **Production 27 พ.ย. 2569 (deployment `cd4077ba-c4ca-4dbb-9309-4c57053c1f2e`, commit `afda3ef1`)**
+
+- เจ้าของสั่ง "ขึ้นเลย"; fastcheck `market-receiving-new-button-20261127` เต็ม 2 รอบ server 766/766, client 876/876, pilot 55/55
+- deploy ครั้งแรก `4ff9827e` FAILED ใน Docker build: `backend-safety.test.mjs` "Unable to deserialize cloned data" (อาการสุ่มเดิมของ test runner เหมือน 24 พ.ย.) → ปล่อยซ้ำ commit เดิม สำเร็จ `cd4077ba`
+- runtime hash `server/src`+`client/src` ตรงกับ worktree (`c6109e7f14069a54…`), bundle `FunctionSelect-BXaaup5S.js` มีการ์ดใหม่, หน้าแรก 200; ไม่มี schema เปลี่ยน จึงไม่ได้สำรองฐานก่อนปล่อย
 
 - เจ้าของสั่ง "เพิ่มปุ่มระบบใหม่แยก": หน้าเลือกฟังก์ชั่นแสดงการ์ด "รับสินค้า" เดิม (`/order/receive`) ตามเดิม และเพิ่มการ์ด "รับสินค้า (ระบบใหม่)" (`/receiving`) ถัดไป ทุกบทบาท/แผนก
 - `client/src/pages/user/FunctionSelect.jsx`: ตอน `LEGACY_RECEIVING_PRIMARY = true` ใส่ทั้งสองการ์ด (false = ระยะที่ 1 เหลือการ์ดใหม่การ์ดเดียวเหมือนเดิม); คำอธิบายการ์ดใหม่ตัด "(แทนเมนูรับสินค้าเดิม)" ออก
