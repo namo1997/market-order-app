@@ -27,10 +27,10 @@ for(const scope of ['department','branch']){
     assert.equal(requests.at(-1),scope);
     const text=h.text(h.visible());
     assert.match(text,/รอรับ4 รายการ/);assert.match(text,/ขาด3 รายการ/);assert.match(text,/เกิน1 รายการ/);
-    assert.match(text,/รับแล้วบางส่วน · ค้าง 4 รายการ/);assert.match(text,/เลยกำหนด 1 วัน/);
+    assert.match(text,/ค้าง4รายการ/);assert.match(text,/เลยกำหนด 1 วัน/);
     await h.click('เลือกร้าน ร้านทดสอบ');
-    assert.match(h.text(h.visible()),/รอนับของจริง/);
-    assert.doesNotMatch(h.text(h.visible()),/รับแล้ว \d+ \/ สั่ง|ขาด \d+ กก/);
+    assert.ok(h.visible().some(n=>n.type==='li'),'chosen shop lists its items');
+    assert.doesNotMatch(h.text(h.visible()),/รับแล้ว \d+ \/ สั่ง|ขาด \d+ กก|\d+(\.\d+)? กก/);
     h.api.expected=async()=>[shop({receipt_summary:undefined,has_partial:false})];
     await h.click('โหลดใหม่');
     assert.match(h.text(h.visible()),/ขาด0 รายการ/);assert.match(h.text(h.visible()),/เกิน0 รายการ/);

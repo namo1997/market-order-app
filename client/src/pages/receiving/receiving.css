@@ -442,3 +442,28 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-scope-filter.sg-segmented::before { content: 'ดูของ'; align-self: center; margin-inline-end: var(--sg-space-2); color: var(--sg-muted); font-size: var(--sg-type-caption); }
 .solao .rc-scope-filter .sg-segment > span { min-height: 40px; padding: var(--sg-space-1) var(--sg-space-3); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); background: var(--sg-surface); box-shadow: none; }
 .solao .rc-scope-filter .sg-segment input:checked + span { background: var(--sg-action); color: var(--sg-on-action); border-color: var(--sg-action); }
+
+/* 2026-11-27 queue re-layout: one line per shop, chosen shop opens its items in place. */
+.solao .rc-queue-shop { --rc-pick: 24px; padding: var(--sg-space-1) var(--sg-space-3); }
+.solao .rc-queue-shop[data-selected='true'] { border-color: var(--sg-action); box-shadow: inset 0 0 0 1px var(--sg-action); }
+.solao .rc-queue-heading { display: grid; grid-template-columns: var(--rc-pick) minmax(0, 1fr); align-items: center; gap: var(--sg-space-3); min-height: 64px; padding: 0; flex-wrap: nowrap; background: transparent; box-shadow: none; }
+.solao .rc-queue-pick { display: grid; place-items: center; width: var(--rc-pick); height: var(--rc-pick); border-radius: 50%; border: 2px solid var(--sg-control-border); color: var(--sg-surface); }
+.solao .rc-queue-pick[data-picked='true'] { background: var(--sg-action); border-color: var(--sg-action); }
+.solao .rc-queue-title { display: grid; gap: var(--sg-space-1); min-width: 0; }
+.solao .rc-queue-heading .rc-queue-name { display: block; font-size: var(--sg-type-body); font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.solao .rc-queue-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sg-space-2); }
+.solao .rc-queue-count { display: inline-flex; align-items: baseline; gap: var(--sg-space-1); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--sg-muted); }
+.solao .rc-queue-count strong { display: inline; font-size: var(--sg-type-body); color: var(--sg-text); }
+.solao .rc-queue-count small { display: inline; margin: 0; font-size: var(--sg-type-caption); }
+.solao .rc-queue-heading .rc-queue-badge { padding: 0 var(--sg-space-2); border-radius: 999px; font-size: var(--sg-type-caption); line-height: 1.8; white-space: nowrap; }
+.solao .rc-shop-workspace > .rc-queue-optional { margin: 0; }
+.solao .rc-current-shop { margin: 0 0 var(--sg-space-2); padding: 0 0 0 calc(var(--rc-pick) + var(--sg-space-3)); background: transparent; border: 0; border-radius: 0; }
+.solao .rc-current-shop .rc-item-list li { flex-wrap: nowrap; padding-block: var(--sg-space-2); }
+.solao .rc-current-shop .rc-item-list li > div { flex: 1; min-width: 0; }
+.solao .rc-current-shop .rc-item-list strong { font-weight: 500; }
+.solao .rc-item-age { flex-shrink: 0; font-size: var(--sg-type-caption); color: var(--sg-muted); font-variant-numeric: tabular-nums; }
+.solao .rc-item-age[data-old] { color: var(--sg-review); font-weight: 700; }
+.solao .rc-current-shop .rc-shop-details { margin-top: var(--sg-space-1); min-height: 44px; padding-inline: var(--sg-space-3); border-radius: var(--sg-radius-sm); }
+.solao .rc-queue-shop > .rc-queue-actions { margin: 0 0 var(--sg-space-2); padding-inline-start: calc(var(--rc-pick) + var(--sg-space-3)); justify-content: flex-start; }
+.solao .rc-queue-shop > .rc-queue-actions > button { flex: 0 0 auto; padding-inline: var(--sg-space-4); }
+.solao .rc-queue-shop .rc-queue-heading[aria-pressed='true'] { background: transparent; border-color: transparent; }

@@ -139,15 +139,15 @@ test('a07 UX: receiving.css contains queue clearance, bill button shrink prevent
   assert.equal(shopHeroH2Rule['font-size'], 'var(--sg-type-title)');
 });
 
-test('a07 UX: choosing shop displays rc-shop-hero with welcome illustration in rc-current-shop', async () => {
+// Owner 2026-11-27 "ขอจัดใหม่หน่อย ui": the chosen shop opens its items in place inside its own card;
+// the duplicate title box (rc-shop-hero) and its illustration were removed.
+test('a07 UX: choosing a shop opens its items inside the same card without a duplicate hero', async () => {
   const h = await harness('Receiving');
   await h.click('เลือกร้าน ตลาด');
-  const currentShop = h.find(node => node.props.className === 'rc-current-shop');
-  assert.ok(currentShop, 'rc-current-shop must be visible when shop is chosen');
-  const shopHero = h.find(node => node.props.className === 'rc-shop-hero');
-  assert.ok(shopHero, 'rc-shop-hero must exist inside chosen shop');
-  const illustration = h.find(node => node.props['data-illustration'] === 'welcome');
-  assert.ok(illustration, 'welcome illustration must be rendered inside rc-shop-hero');
+  const card = h.find(node => node.props.className === 'rc-queue-shop' && node.props['data-open'] === true);
+  assert.ok(card, 'chosen card is open');
+  assert.ok(h.all(card).some(node => node.props.className === 'rc-current-shop'), 'items render inside the chosen card');
+  assert.equal(h.visible().some(node => node.props.className === 'rc-shop-hero'), false, 'no duplicate shop title box');
   h.unmount();
 });
 

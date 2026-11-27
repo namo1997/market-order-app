@@ -45,7 +45,7 @@ test('device UX: embedded omits page chrome; standalone has one app heading and 
 test('device UX: selected supplier has context and a clear receiving action; free receipt remains reachable', async () => {
   const h = await harness('Receiving');
   await h.click('เลือกร้าน ตลาด');
-  assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
+  assert.ok(h.visible().some(node => node.props.className === 'rc-queue-shop' && node.props['data-open'] === true && h.text(node).includes('ตลาด')), 'chosen shop card is open');
   assert.equal(h.text(h.find(node => node.type === 'button' && node.props.className?.includes('sg-primary'))), 'สแกนบิล ตลาด');
   // The manual setup sheet (free receipt: item choice, shop name) moved to Options.
   await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง');

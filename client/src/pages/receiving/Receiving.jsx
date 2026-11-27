@@ -22,7 +22,7 @@ import { ShopWorkspace } from './ShopWorkspace';
 import { receivingFollowupsAPI as followupAPI } from '../../api/receiving-followups';
 import { FollowupBell, FollowupDialog } from './FollowupBell';
 import { SupplierLeadSettings } from './SupplierLeadSettings';
-import { canManageFollowups, followupTime, hasPendingQuantity, sortShops } from './receiving-queue';
+import { canManageFollowups, followupTime, hasPendingQuantity, shortShopName, sortShops } from './receiving-queue';
 import { ReceivingInstallHint } from './ReceivingInstallHint';
 import { readThemePreference, saveThemePreference, browserThemeStorage, applyThemePreference, readRootThemePreference, themeChangeEvent } from '../../design/theme-preference';
 
@@ -246,7 +246,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description="เปลี่ยนวัน ดูเอกสาร หรือรับสินค้าเพิ่มได้ในตัวเลือก" />}
           {!!groups.length && <ShopWorkspace groups={groups} current={selected ? selectedGroup : null} selectedKey={selectedGroup?.supplier_key} waiting={waiting} onChoose={setSelected} referenceDate={businessDate}
             onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy}
-            noBillGroup={selectedGroup} noBillDisabled={opening || !online || loading} onNoBill={group => void startShop(group, 'manual_receipt')} followupEnabled={!branchScope && date === bangkokDate()} />}
+            noBillDisabled={opening || !online || loading} onNoBill={group => void startShop(group, 'manual_receipt')} followupEnabled={!branchScope && date === bangkokDate()} />}
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
@@ -262,7 +262,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!queueError && !error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
           <PrimaryAction icon={error || queueError || !online ? 'retry' : tab === 'expected' && selectedGroup ? 'scan' : 'receipt'} disabled={opening || !scopeReady || loading} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
-            {error || queueError || !online ? 'ลองใหม่' : tab === 'expected' ? selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}` : 'ดูเอกสาร' : 'ดูคิวรอรับ'}
+            {error || queueError || !online ? 'ลองใหม่' : tab === 'expected' ? selectedGroup && queueReady ? `สแกนบิล ${shortShopName(selectedGroup.supplier_name)}` : 'ดูเอกสาร' : 'ดูคิวรอรับ'}
           </PrimaryAction>
         </GlassBar>
       </>}

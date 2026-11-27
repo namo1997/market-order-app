@@ -23,7 +23,7 @@ test('A07 R2 A / Q4: every card only selects its shop; a single selected-shop pr
   for (const groups of [[group(1)], [group(1), group(2)]]) {
     const h = await harness('Receiving', {}, { expected: async () => groups });
     assert.equal(h.text(primary(h)), `สแกนบิล ${groups[0].supplier_name}`);
-    assert.ok(text(h).includes('ของมาจากร้านไหน แตะเลือกร้านนั้น แล้วกด สแกนบิล'));
+    assert.ok(!text(h).includes('ของมาจากร้านไหน'), 'owner 2026-11-27: no instruction sentence above the queue');
     assert.ok(!text(h).includes('รับร้านนี้'));
     // Q4: no per-card "รับของ <ร้าน>" button duplicating the bottom action.
     assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('รับของ ')).length, 0);
@@ -32,7 +32,9 @@ test('A07 R2 A / Q4: every card only selects its shop; a single selected-shop pr
     const last = groups.at(-1).supplier_name;
     await h.click(`เลือกร้าน ${last}`);
     assert.equal(h.find(n => n.props['aria-label'] === `เลือกร้าน ${last}`).props['aria-pressed'], true);
-    assert.ok(text(h).includes('เลือกแล้ว'), 'selected card shows a visible selected cue, not colour alone');
+    const mark = h.find(n => n.props.className === 'rc-queue-pick' && n.props['data-picked'] === true);
+    assert.ok(h.all(mark).some(n => n.type === 'svg'), 'selected card shows a check mark, not colour alone');
+    assert.equal(h.visible().filter(n => n.props.className === 'rc-queue-pick' && h.all(n).some(c => c.type === 'svg')).length, 1, 'only the selected card has the mark');
     assert.equal(h.text(primary(h)), `สแกนบิล ${last}`);
     assert.equal(h.calls.length, 0, 'selecting never writes');
     await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง');

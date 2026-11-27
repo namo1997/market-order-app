@@ -48,7 +48,7 @@ test('device layout contract: both main actions share remaining space and preser
     assert.equal(buttons[1].props['aria-label'], 'โหลดใหม่');
     assert.equal(h.text(buttons[2]), primary);
     if (primary === 'สแกนบิล ตลาด') {
-      assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
+      assert.ok(h.visible().some(node => node.props.className === 'rc-queue-shop' && node.props['data-open'] === true && h.text(node).includes('ตลาด')), 'chosen shop card is open');
       await h.radio('documents');
     }
   }

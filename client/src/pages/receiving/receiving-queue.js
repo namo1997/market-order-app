@@ -16,6 +16,13 @@ export const queueStatus = (group, referenceDate) => {
   return group.receiving_optional && group.status === 'overdue' ? 'due_today' : group.status || 'due_today';
 };
 export const OPTIONAL_RECEIVING_NOTE = 'ไม่บังคับรับ · ถ้าไม่นับ ระบบรับให้อัตโนมัติวันถัดไป';
+// Display name for queue cards/buttons: drop legal prefixes/suffixes so the shop fits one line
+// ("บจก.เบทาโกรเกษตรอุสาหกรรม" -> "เบทาโกรเกษตรอุสาหกรรม"). Full name stays in aria-labels.
+export function shortShopName(name) {
+  const full = String(name || '').trim();
+  const short = full.replace(/^(บจก\.|หจก\.|บมจ\.|บริษัท|ห้างหุ้นส่วนจำกัด)\s*/, '').replace(/\s*จำกัด(\s*\(มหาชน\))?\s*$/, '').trim();
+  return short || full;
+}
 export function sortShops(groups, referenceDate) {
   const rank = { overdue: 0, due_today: 1, partial: 2, upcoming: 3 };
   return [...groups].sort((a,b) => (rank[queueStatus(a, referenceDate)] ?? 3) - (rank[queueStatus(b, referenceDate)] ?? 3) ||

@@ -165,7 +165,7 @@ test('Q4 a queue card only selects; one bottom action starts receiving', async (
     assert.equal(h.visible().filter(n => n.props['aria-pressed'] === true).length, 1, 'one selected card');
     assert.equal(h.find(n => n.props['aria-label'] === `เลือกร้าน ร้านตัวอย่าง ${id}`).props['aria-pressed'], true);
   }
-  assert.equal(h.visible().filter(n => n.props.className === 'rc-queue-picked').length, 1, 'selected cue shown once');
+  assert.equal(h.visible().filter(n => n.props.className === 'rc-queue-pick' && n.props['data-picked'] === true).length, 1, 'selected cue shown once');
   assert.equal(h.calls.length, 0);
   // Scan-first: the bottom action creates the receipt for the selected shop at once (no setup form).
   await h.click('สแกนบิล ร้านตัวอย่าง 2');
