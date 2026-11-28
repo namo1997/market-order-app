@@ -52,7 +52,7 @@ test('Claude connects with the bare Gateway URL through discovery, PKCE, refresh
     // Claude may normalise the bare origin with a trailing slash; scope comes from the 401 challenge but may be omitted.
     const page = await fetch(`${base}/oauth/authorize?${authorizeQuery(client.client_id, {resource: `${env.BUSINESS_PUBLIC_URL}/`})}`);
     assert.equal(page.status, 200);
-    assert.match(page.headers.get('content-security-policy'), /form-action 'self' [^;]*https:\/\/claude\.ai\/api\/mcp\/auth_callback[^;]*https:\/\/claude\.com\/api\/mcp\/auth_callback;/);
+    assert.match(page.headers.get('content-security-policy'), /form-action 'self' [^;]*https:\/\/claude\.ai\/api\/mcp\/auth_callback[^;]*https:\/\/claude\.com\/api\/mcp\/auth_callback[^;]*;/);
     assert.doesNotMatch(page.headers.get('content-security-policy'), /\$\{/);
     const html = await page.text();
     assert.match(html, /Claude \(<strong>claude\.ai<\/strong>\) ขอสิทธิ์/);
