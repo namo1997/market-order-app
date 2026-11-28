@@ -1,5 +1,14 @@
 # ประวัติ Business MCP Gateway
 
+## 28 พฤศจิกายน 2026 — Production รับ OpenBot desktop เป็น MCP client
+
+- ผู้ใช้สั่ง "แก้ gateway รับ OpenBot" และอนุมัติ "อนุมัติ deploy"; branch `business/openbot-callback-20261128` จาก `business/production-base` 004f2f3 (live deployment `e779b99f-213a-45ab-a90b-14afe2a05bab` เป็น redeploy ของ source เดียวกัน)
+- OAuth รับ callback loopback ตรงตัวของ OpenBot (openbot.run) `http://127.0.0.1:28417/mcp-auth` เท่านั้น; port/host/path อื่น, `https://openbot.run/oauth/mcp-callback`, `openbot://` ยังได้ 400; CSP form-action เพิ่มค่านี้; หน้าอนุญาตแสดง "OpenBot (127.0.0.1)"; รหัสผ่านเจ้าของ scope business.read และ policy สาขาไม่เปลี่ยน; เทสต์ใหม่ 3 ชุด รวม 34/34 ผ่าน
+- ปล่อย source `69b6cff` จาก worktree สะอาดด้วย Railway CLI 5.77.0 (`railway up` จาก repo root, rootDirectory `business-mcp`) message `OpenBot desktop exact loopback OAuth callback 69b6cff`; deployment `0876aafd-e29f-4fd6-9b08-590241bc7c41` SUCCESS; runtime manifest จาก deploy log ตรง commit 15/15 (sha256 `72b0494407f3…`)
+- ตรวจ Production แบบไม่ใช้รหัสผ่าน: `/health` 200; DCR 201 สำหรับ OpenBot/claude.ai/chatgpt.com, 400 สำหรับ loopback port/host/path อื่น openbot.run และ localhost:3118; `POST /` และ `/mcp` ไม่มี token ได้ 401; หน้าอนุญาตแสดงชื่อ OpenBot และ CSP มี callback ใหม่
+- Staged patch `030a6027-1e77-46c1-b272-393faacc0b86` ยัง STAGED, updatedAt `2026-11-09T11:05:44.570Z`, hash `1451927e…d258` ตรงก่อน/หลังปล่อย ไม่ accept_deploy ไม่แตะ service อื่น; `business/production-base` เลื่อนไป `69b6cff`
+- ยังไม่ได้ทำ verify-live รอบนี้ (เปลี่ยนเฉพาะ OAuth allowlist) และยังไม่ได้ล็อกอินจริงจาก OpenBot จนกว่าเจ้าของกรอกรหัสผ่านเอง
+
 ## 12 พฤศจิกายน 2026 — Local candidate เชื่อม Claude เป็น custom connector
 
 - ผู้ใช้สั่ง "แก้ให้ต่อ Claude ได้" เพื่อใช้ Gateway เป็นแกนผู้ช่วยแบบ Jarvis; branch `business/claude-connector-20261112` จาก `business/integration-20261009-sales-items` d0bcb2dc (source = Production `4ed496dd`; runtime manifest ของ deployment `2b401288-e248-4c67-8c57-ab3f836e8247` ตรง commit 15/15 ไฟล์ ตรวจ 12 พ.ย.)
